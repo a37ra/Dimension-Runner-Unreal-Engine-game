@@ -100,6 +100,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cabin|Singularity")
 	FLinearColor FlashColor = FLinearColor(1.f, 0.85f, 0.5f, 1.f); // тёплый белый
 
+	/** Насколько кабина разрастается перед сжатием (1.2 = +20% от оригинала) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cabin|Singularity")
+	float ExpandScale = 1.2f;
+
+	/** Какую долю времени занимает фаза расширения (0.0–1.0). 0.3 = 30% на рост, 70% на сжатие */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cabin|Singularity")
+	float ExpandFraction = 0.3f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cabin|Doors")
 	FVector DoorLClosedPos = FVector(-75.0f, 150.0f, 130.0f);
 

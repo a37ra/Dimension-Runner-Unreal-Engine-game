@@ -840,17 +840,53 @@ void ATravelCabin::TickSingularity(float DeltaTime)
 	SingularityElapsed += DeltaTime;
 	const float Alpha = FMath::Clamp(SingularityElapsed / FMath::Max(SingularityDuration, 0.01f), 0.0f, 1.0f);
 
-	// Сжатие кабины 1 → 0
-	SetActorScale3D(FMath::Lerp(OriginalScale, FVector::ZeroVector, Alpha));
+	// ─── ДВЕ ФАЗЫ ─────────────────────────────────────────────────────────────
+	// Фаза 1 (0 → ExpandFraction): кабина СЛЕГКА РАСТЁТ, искажение слабое
+	// Фаза 2 (ExpandFraction → 1): кабина РЕЗКО СЖИМАЕТСЯ, искажение взрывается
+	// ──────────────────────────────────────────────────────────────────────────
 
-	// Вспышка: нарастает с нулевой до максимальной яркости
+	const float SafeExpand = FMath::Clamp(ExpandFraction, 0.01f, 0.99f);
+	FVector TargetScale;
+	float IntensityAlpha; // отдельный прогресс для PP-искажения
+
+	if (Alpha < SafeExpand)
+	{
+		// --- Фаза 1: плавное расширение ---
+		const float ExpandAlpha = Alpha / SafeExpand; // 0 → 1
+		
+		// Ease In-Out: мягко начинает расти, мягко останавливается
+		const float EasedExpand = FMath::InterpEaseInOut(0.0f, 1.0f, ExpandAlpha, 2.0f);
+		
+		TargetScale = OriginalScale * FMath::Lerp(1.0f, ExpandScale, EasedExpand);
+		
+		// Искажение очень слабое: растёт плавно до 10%
+		IntensityAlpha = EasedExpand * 0.1f;
+	}
+	else
+	{
+		// --- Фаза 2: экспоненциальное сжатие (взрыв внутрь) ---
+		const float ShrinkAlpha = (Alpha - SafeExpand) / (1.0f - SafeExpand); // 0 → 1
+		
+		// Ease In (степень 4): долго удерживает пиковую форму, затем РЕЗКО схлопывается
+		const float EasedShrink = FMath::InterpEaseIn(0.0f, 1.0f, ShrinkAlpha, 4.0f);
+		
+		const FVector PeakScale = OriginalScale * ExpandScale;
+		TargetScale = FMath::Lerp(PeakScale, FVector::ZeroVector, EasedShrink);
+		
+		// Искажение (и вспышка) взрываются по той же крутой кривой
+		IntensityAlpha = FMath::Lerp(0.1f, 1.0f, EasedShrink);
+	}
+
+	SetActorScale3D(TargetScale);
+
+	// Вспышка следует за той же кривой
 	if (FlashLight)
-		FlashLight->SetIntensity(Alpha * FlashMaxIntensity);
+		FlashLight->SetIntensity(IntensityAlpha * FlashMaxIntensity);
 
 	// PostProcess искажение
 	if (SingularityDMI)
 	{
-		SingularityDMI->SetScalarParameterValue(TEXT("Intensity"), Alpha * SingularityMaxIntensity);
+		SingularityDMI->SetScalarParameterValue(TEXT("Intensity"), IntensityAlpha * SingularityMaxIntensity);
 
 		// CabinUV — обновляем не каждый кадр (ProjectWorldToScreen дорогой вызов)
 		++UVUpdateCounter;

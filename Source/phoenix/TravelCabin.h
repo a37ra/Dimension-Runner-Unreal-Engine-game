@@ -12,6 +12,10 @@ class UWidgetComponent;
 class UCurveFloat;
 class USoundBase;
 class UTextBlock;
+class UPostProcessComponent;
+class UMaterialInterface;
+class UMaterialInstanceDynamic;
+class UPointLightComponent;
 
 /**
  * Состояние кабины
@@ -74,7 +78,27 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cabin|Settings")
 	TObjectPtr<USoundBase> SirenSound;
 
-	// ==================== ПОЗИЦИИ ДВЕРЕЙ ====================
+	// ==================== СИНГУЛЯРНОСТЬ ====================
+
+	/** Материал для создания DMI (M_Singularity_PP, Domain=PostProcess) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cabin|Singularity")
+	TObjectPtr<UMaterialInterface> SingularityMaterial;
+
+	/** Длительность эффекта (= время сжатия кабины) в секундах */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cabin|Singularity")
+	float SingularityDuration = 3.0f;
+
+	/** Макс. сила искажения к концу (0.03–0.08, не 3.0!) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cabin|Singularity")
+	float SingularityMaxIntensity = 0.05f;
+
+	/** Макс. яркость вспышки (Lux). 0 = выключить */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cabin|Singularity")
+	float FlashMaxIntensity = 50000.f;
+
+	/** Цвет вспышки */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cabin|Singularity")
+	FLinearColor FlashColor = FLinearColor(1.f, 0.85f, 0.5f, 1.f); // тёплый белый
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cabin|Doors")
 	FVector DoorLClosedPos = FVector(-75.0f, 150.0f, 130.0f);
@@ -125,6 +149,19 @@ protected:
 
 	FTimeline DoorTimeline;
 	FTimerHandle CabinTimerHandle;
+
+	// --- Сингулярность + сжатие ---
+	TObjectPtr<UPostProcessComponent> CachedSingularityPP;
+	TObjectPtr<UMaterialInstanceDynamic> SingularityDMI;
+	TObjectPtr<UPointLightComponent> FlashLight; // создаётся только при начале эффекта
+	bool bSingularityActive = false;
+	float SingularityElapsed = 0.0f;
+	int32 UVUpdateCounter = 0;    // для обновления CabinUV раз в 3 кадра
+	FVector OriginalScale = FVector(1.f);
+
+	void StartSingularityAndShrink(); // запускается из OnPlayerLeftBehind
+	void TickSingularity(float DeltaTime);
+	void FinishSingularity();
 
 	// Что делать после закрытия дверей
 	enum class EPendingAction : uint8

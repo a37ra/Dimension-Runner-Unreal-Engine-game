@@ -5,12 +5,16 @@
 #include "Components/StaticMeshComponent.h"
 #include "Components/WidgetComponent.h"
 #include "Components/TextBlock.h"
+#include "Components/PostProcessComponent.h"
+#include "Components/PointLightComponent.h"
 #include "Blueprint/UserWidget.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/PlayerController.h"
 #include "TimerManager.h"
 #include "Curves/CurveFloat.h"
 #include "Sound/SoundBase.h"
+#include "Materials/MaterialInstanceDynamic.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogCabin, Log, All);
 
@@ -117,6 +121,8 @@ void ATravelCabin::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 	DoorTimeline.TickTimeline(DeltaTime);
+	if (bSingularityActive)
+		TickSingularity(DeltaTime);
 }
 
 // ============================================================
@@ -334,13 +340,29 @@ void ATravelCabin::OnDoorTimelineFinished()
 
 	case EPendingAction::PlayerAbandoned:
 		{
-			// Игрок не успел — вызываем BP-событие
-			UE_LOG(LogCabin, Warning, TEXT("Cabin: Player LEFT BEHIND!"));
-			OnPlayerLeftBehind();
-			// ВНИМАНИЕ: ЗДЕСЬ НЕТ ТЕЛЕПОРТА (OpenLevel). 
-			// Кабина просто закроется, и BP скрипт OnPlayerLeftBehind должен убить персонажа
-			// или показать экран Game Over. Мы никуда не тепаем текущий уровень,
-			// иначе Unreal перезагрузит WorldA вместе с игроком.
+			// Двери закрылись, игрока нет внутри — запускаем эффект сингулярности
+			if (bIsPlayerInside)
+			{
+				// На всякий случай: игрок всё-таки успел запрыгнуть
+				UE_LOG(LogCabin, Warning, TEXT("Cabin: PlayerAbandoned but player IS inside! Doing rescue instead."));
+				SavePlayerInventoryToGI();
+				GI_SetCabinStatus(false);
+				GI_SetOverheatStatus(true);
+				SetCabinState(ECabinState::Returning);
+				TargetLevelName = TEXT("L_Laboratory");
+				PendingAction = EPendingAction::TeleportHome;
+				// Двери уже закрыты, просто телепортируемся
+				FTimerHandle TeleportHandle;
+				GetWorldTimerManager().SetTimer(TeleportHandle, this,
+					&ATravelCabin::PerformTeleport, TeleportDelay, false);
+			}
+			else
+			{
+				// Игрок не успел — C++ запускает эффект и сжатие
+				UE_LOG(LogCabin, Warning, TEXT("Cabin: Player LEFT BEHIND! Starting singularity."));
+				StartSingularityAndShrink();
+				OnPlayerLeftBehind(); // Всё что ещё осталось в BP (PrintString DEFEAT и т.d.)
+			}
 		}
 		break;
 
@@ -415,6 +437,12 @@ void ATravelCabin::FindBlueprintComponents()
 			CachedScreen = Cast<UWidgetComponent>(Comp);
 		else if (Name.Contains(TEXT("Blocker")))
 			CachedBlocker = Cast<UPrimitiveComponent>(Comp);
+		else if (Name.Contains(TEXT("Singularity")))
+		{
+			CachedSingularityPP = Cast<UPostProcessComponent>(Comp);
+			if (CachedSingularityPP)
+				CachedSingularityPP->SetVisibility(false); // выключаем до срабатывания эффекта
+		}
 	}
 
 	// Логируем результат
@@ -754,4 +782,102 @@ void ATravelCabin::PerformTeleport()
 {
 	UE_LOG(LogCabin, Log, TEXT("Cabin: TELEPORTING to %s"), *TargetLevelName.ToString());
 	UGameplayStatics::OpenLevel(this, TargetLevelName);
+}
+
+// ============================================================
+// СИНГУЛЯРНОСТЬ + СЖАТИЕ КАБИНЫ
+// ============================================================
+
+void ATravelCabin::StartSingularityAndShrink()
+{
+	if (!CachedSingularityPP)
+	{
+		UE_LOG(LogCabin, Warning, TEXT("Cabin: SingularityPP NOT FOUND in BP components!"));
+		// Даже без PostProcess — запускаем сжатие
+	}
+
+	if (SingularityMaterial && CachedSingularityPP)
+	{
+		CachedSingularityPP->SetVisibility(true);
+
+		SingularityDMI = UMaterialInstanceDynamic::Create(SingularityMaterial, this);
+		if (SingularityDMI)
+		{
+			SingularityDMI->SetScalarParameterValue(TEXT("Intensity"), 0.0f);
+			CachedSingularityPP->AddOrUpdateBlendable(SingularityDMI, 1.0f);
+		}
+	}
+	else
+	{
+		UE_LOG(LogCabin, Warning, TEXT("Cabin: SingularityMaterial not set in Class Defaults > Cabin|Singularity!"));
+	}
+
+	OriginalScale = GetActorScale3D();
+
+	// Вспышка — радиус в 3x от размера кабины чтобы покрывать её целиком
+	if (FlashMaxIntensity > 0.f)
+	{
+		FlashLight = NewObject<UPointLightComponent>(this, TEXT("SingularityFlash"));
+		FlashLight->RegisterComponent();
+		FlashLight->AttachToComponent(GetRootComponent(),
+			FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+		FlashLight->SetIntensity(0.f);
+		FlashLight->SetLightColor(FlashColor);
+		FlashLight->bUseInverseSquaredFalloff = false; // линейное затухание = плавная вспышка
+		// Берём макс. компонент масштаба * ориентировочный радиус кабины * 3
+		const float CabinRadius = OriginalScale.GetMax() * 300.f;
+		FlashLight->SetAttenuationRadius(CabinRadius * 3.f);
+		FlashLight->SetCastShadows(false); // тени от временного света не нужны
+	}
+
+	SingularityElapsed = 0.0f;
+	UVUpdateCounter = 0;
+	bSingularityActive = true;
+}
+
+void ATravelCabin::TickSingularity(float DeltaTime)
+{
+	SingularityElapsed += DeltaTime;
+	const float Alpha = FMath::Clamp(SingularityElapsed / FMath::Max(SingularityDuration, 0.01f), 0.0f, 1.0f);
+
+	// Сжатие кабины 1 → 0
+	SetActorScale3D(FMath::Lerp(OriginalScale, FVector::ZeroVector, Alpha));
+
+	// Вспышка: нарастает с нулевой до максимальной яркости
+	if (FlashLight)
+		FlashLight->SetIntensity(Alpha * FlashMaxIntensity);
+
+	// PostProcess искажение
+	if (SingularityDMI)
+	{
+		SingularityDMI->SetScalarParameterValue(TEXT("Intensity"), Alpha * SingularityMaxIntensity);
+
+		// CabinUV — обновляем не каждый кадр (ProjectWorldToScreen дорогой вызов)
+		++UVUpdateCounter;
+		if (UVUpdateCounter >= 3)
+		{
+			UVUpdateCounter = 0;
+			if (APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0))
+			{
+				FVector2D ScreenPos;
+				int32 W, H;
+				PC->GetViewportSize(W, H);
+				if (W > 0 && H > 0 &&
+					PC->ProjectWorldLocationToScreen(GetActorLocation(), ScreenPos, false))
+				{
+					SingularityDMI->SetVectorParameterValue(TEXT("CabinUV"),
+						FLinearColor(ScreenPos.X / W, ScreenPos.Y / H, 0.f, 0.f));
+				}
+			}
+		}
+	}
+
+	if (Alpha >= 1.0f)
+		FinishSingularity();
+}
+
+void ATravelCabin::FinishSingularity()
+{
+	bSingularityActive = false;
+	Destroy();
 }

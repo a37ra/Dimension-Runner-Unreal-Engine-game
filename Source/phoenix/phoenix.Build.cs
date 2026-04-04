@@ -13,7 +13,9 @@ public class phoenix : ModuleRules
 			"Engine",
 			"InputCore",
 			"UMG",
-			"SlateCore"
+			"SlateCore",
+			"CableComponent",
+			"Niagara"
 		});
 	}
 }

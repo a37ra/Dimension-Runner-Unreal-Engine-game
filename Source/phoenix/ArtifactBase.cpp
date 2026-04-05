@@ -2,6 +2,8 @@
 
 #include "ArtifactBase.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/DataTable.h"
+#include "UObject/UnrealType.h"
 
 AArtifactBase::AArtifactBase()
 {
@@ -19,6 +21,11 @@ AArtifactBase::AArtifactBase()
 
 	// Привязка события столкновения
 	MeshComponent->OnComponentHit.AddDynamic(this, &AArtifactBase::OnHit);
+}
+
+void AArtifactBase::BeginPlay()
+{
+	Super::BeginPlay();
 }
 
 FText AArtifactBase::GetInteractHintText() const

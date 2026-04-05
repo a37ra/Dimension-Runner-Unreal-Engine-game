@@ -3,6 +3,7 @@
 #include "CarryComponent.h"
 #include "ArtifactBase.h"
 #include "SprintStaminaComponent.h"
+#include "CameraBobComponent.h"
 #include "PhysicsEngine/PhysicsHandleComponent.h"
 #include "CableComponent.h"
 #include "NiagaraFunctionLibrary.h"
@@ -59,10 +60,11 @@ void UCarryComponent::BeginPlay()
 		BeamCable->SetVisibility(false);
 	}
 
-	// Кэш StaminaComponent (для передачи множителя скорости)
+	// Кэш StaminaComponent + CameraBobComponent
 	if (ACharacter* Character = Cast<ACharacter>(Owner))
 	{
 		StaminaComp = Character->FindComponentByClass<USprintStaminaComponent>();
+		CameraBobComp = Character->FindComponentByClass<UCameraBobComponent>();
 	}
 }
 
@@ -107,6 +109,34 @@ void UCarryComponent::UpdateLookTrace()
 }
 
 // ==================== КОМАНДЫ ====================
+
+void UCarryComponent::BeginGrab()
+{
+	if (IsCarrying() || !LookedAtArtifact || !PhysicsHandle) return;
+
+	if (GrabHoldTime > 0.0f)
+	{
+		// Запускаем таймер на удержание (в этот момент можно показывать UI-прогресс в будущем)
+		GetWorld()->GetTimerManager().SetTimer(GrabTimerHandle, this, &UCarryComponent::ExecuteGrabTimerObj, GrabHoldTime, false);
+	}
+	else
+	{
+		TryGrab();
+	}
+}
+
+void UCarryComponent::EndGrab()
+{
+	if (GetWorld()->GetTimerManager().IsTimerActive(GrabTimerHandle))
+	{
+		GetWorld()->GetTimerManager().ClearTimer(GrabTimerHandle);
+	}
+}
+
+void UCarryComponent::ExecuteGrabTimerObj()
+{
+	TryGrab();
+}
 
 bool UCarryComponent::TryGrab()
 {
@@ -174,8 +204,12 @@ void UCarryComponent::AdjustDistance(float Delta)
 {
 	if (!IsCarrying()) return;
 
+	// Чем тяжелее — тем медленнее колёсико
+	const float ScrollMult = CalcWeightFactor(
+		CarriedArtifact->GetWeight(), MinScrollSpeed);
+
 	CurrentHoldDistance = FMath::Clamp(
-		CurrentHoldDistance + Delta * DistanceStep,
+		CurrentHoldDistance + Delta * DistanceStep * ScrollMult,
 		MinHoldDistance, MaxHoldDistance
 	);
 }
@@ -277,17 +311,44 @@ float UCarryComponent::GetCurrentSpeedMultiplier() const
 
 void UCarryComponent::ApplyWeightPenalty()
 {
-	if (!StaminaComp || !CarriedArtifact) return;
+	if (!CarriedArtifact) return;
 
-	const float Mult = CalcSpeedMultiplier(CarriedArtifact->GetWeight());
-	StaminaComp->SetExternalSpeedMultiplier(Mult);
+	const float Weight = CarriedArtifact->GetWeight();
 
-	UE_LOG(LogTemp, Log, TEXT("Carry: Weight %.1f → Speed x%.2f"),
-		CarriedArtifact->GetWeight(), Mult);
+	// Скорость движения
+	if (StaminaComp)
+	{
+		const float SpeedMult = CalcSpeedMultiplier(Weight);
+		StaminaComp->SetExternalSpeedMultiplier(SpeedMult);
+		UE_LOG(LogTemp, Log, TEXT("Carry: Weight %.1f → Speed x%.2f"), Weight, SpeedMult);
+	}
+
+	// Чувствительность мыши
+	if (CameraBobComp)
+	{
+		const float SensMult = CalcWeightFactor(Weight, MinMouseSensitivity);
+		CameraBobComp->SetWeightSensitivity(SensMult);
+		UE_LOG(LogTemp, Log, TEXT("Carry: Weight %.1f → Sensitivity x%.2f"), Weight, SensMult);
+	}
 }
 
 void UCarryComponent::RemoveWeightPenalty()
 {
-	if (!StaminaComp) return;
-	StaminaComp->SetExternalSpeedMultiplier(1.0f);
+	if (StaminaComp)
+		StaminaComp->SetExternalSpeedMultiplier(1.0f);
+
+	if (CameraBobComp)
+		CameraBobComp->SetWeightSensitivity(1.0f);
+}
+
+float UCarryComponent::CalcWeightFactor(float Weight, float MinFactor) const
+{
+	if (Weight <= LightWeightThreshold) return 1.0f;
+
+	const float T = FMath::Clamp(
+		(Weight - LightWeightThreshold) / (MaxWeightForCalc - LightWeightThreshold),
+		0.0f, 1.0f
+	);
+
+	return FMath::Lerp(1.0f, MinFactor, T);
 }

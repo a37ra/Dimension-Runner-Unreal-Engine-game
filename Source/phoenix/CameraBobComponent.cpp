@@ -4,6 +4,7 @@
 #include "Camera/CameraComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/PlayerController.h"
 
 UCameraBobComponent::UCameraBobComponent()
 {
@@ -130,4 +131,34 @@ void UCameraBobComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	FRotator CamRot = CameraComp->GetRelativeRotation();
 	CamRot.Roll = CurrentRoll;
 	CameraComp->SetRelativeRotation(CamRot);
+
+	// ===================== ВЕС → ЧУВСТВИТЕЛЬНОСТЬ МЫШИ =====================
+	if (APlayerController* PC = Cast<APlayerController>(Character->GetController()))
+	{
+		// Кэшируем базовые значения при первом тике
+		if (!bScalesCached)
+		{
+			BaseYawScale = PC->GetDeprecatedInputYawScale();
+			BasePitchScale = PC->GetDeprecatedInputPitchScale();
+			bScalesCached = true;
+		}
+
+		// Плавная интерполяция чувствительности
+		CurrentSensitivityMult = FMath::FInterpTo(
+			CurrentSensitivityMult, TargetSensitivityMult, DeltaTime, 6.0f);
+
+		const float TargetYaw = BaseYawScale * CurrentSensitivityMult;
+		const float TargetPitch = BasePitchScale * CurrentSensitivityMult;
+
+		PC->SetDeprecatedInputYawScale(
+			FMath::FInterpTo(PC->GetDeprecatedInputYawScale(), TargetYaw, DeltaTime, 8.0f));
+		PC->SetDeprecatedInputPitchScale(
+			FMath::FInterpTo(PC->GetDeprecatedInputPitchScale(), TargetPitch, DeltaTime, 8.0f));
+	}
+}
+
+void UCameraBobComponent::SetWeightSensitivity(float Multiplier)
+{
+	TargetSensitivityMult = FMath::Clamp(Multiplier, 0.3f, 1.0f);
+	UE_LOG(LogTemp, Log, TEXT("CameraBob: Sensitivity target = %.2f"), TargetSensitivityMult);
 }

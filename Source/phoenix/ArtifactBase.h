@@ -3,6 +3,8 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Engine/Texture2D.h"
+#include "Engine/DataTable.h"
 #include "ArtifactBase.generated.h"
 
 /**
@@ -17,7 +19,13 @@ class PHOENIX_API AArtifactBase : public AActor
 public:
 	AArtifactBase();
 
-	// ==================== ДАННЫЕ АРТЕФАКТА ====================
+	// ==================== ИДЕНТИФИКАЦИЯ ====================
+
+	/** ID предмета — для проверки приёмниками (например, "Scrap", "Fuse") */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Artifact|Data")
+	FName ItemID;
+
+	// ==================== ДАННЫЕ АРТЕФАКТА (Настраиваются вручную) ====================
 
 	/** Название предмета (для заказов и UI) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Artifact")
@@ -30,6 +38,10 @@ public:
 	/** Вес предмета. >5 = тяжёлый (замедляет сильнее) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Artifact")
 	float Weight = 1.0f;
+
+	/** Иконка предмета (для UI слотов кабины) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Artifact")
+	TObjectPtr<UTexture2D> ItemIcon;
 
 	/** Хрупкий? Получает урон от бросков и падений */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Artifact")
@@ -93,6 +105,8 @@ public:
 	void OnThrownEvent();
 
 protected:
+	virtual void BeginPlay() override;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Artifact|Components")
 	TObjectPtr<UStaticMeshComponent> MeshComponent;
 

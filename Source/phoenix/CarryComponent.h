@@ -11,6 +11,7 @@ class UNiagaraComponent;
 class UNiagaraSystem;
 class AArtifactBase;
 class USprintStaminaComponent;
+class UCameraBobComponent;
 
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
 class PHOENIX_API UCarryComponent : public UActorComponent
@@ -59,6 +60,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Carry|Weight")
 	float MinSpeedMultiplier = 0.25f;
 
+	/** Мин. множитель чувствительности мыши (при макс. весе) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Carry|Weight")
+	float MinMouseSensitivity = 0.4f;
+
+	/** Мин. множитель скорости колёсика (при макс. весе) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Carry|Weight")
+	float MinScrollSpeed = 0.3f;
+
 	// ==================== НАСТРОЙКИ ЛУЧА ====================
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Carry|Beam")
@@ -76,6 +85,12 @@ public:
 	TObjectPtr<UNiagaraSystem> BeamEndParticles;
 
 	// ==================== КОМАНДЫ ====================
+
+	UFUNCTION(BlueprintCallable, Category = "Carry")
+	void BeginGrab();
+
+	UFUNCTION(BlueprintCallable, Category = "Carry")
+	void EndGrab();
 
 	UFUNCTION(BlueprintCallable, Category = "Carry")
 	bool TryGrab();
@@ -123,8 +138,19 @@ private:
 	void ShowBeam();
 	void HideBeam();
 
+	// ==================== GRAB SETTINGS ====================
+	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Carry|Settings", meta = (ClampMin = "0.0", AllowPrivateAccess = "true"))
+	float GrabHoldTime = 0.5f;
+
+	FTimerHandle GrabTimerHandle;
+	void ExecuteGrabTimerObj();
+
 	/** Рассчитать множитель скорости из веса (пропорционально) */
 	float CalcSpeedMultiplier(float Weight) const;
+
+	/** Обобщённый расчёт множителя от веса */
+	float CalcWeightFactor(float Weight, float MinFactor) const;
 
 	UPROPERTY()
 	TObjectPtr<UPhysicsHandleComponent> PhysicsHandle;
@@ -146,6 +172,9 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<USprintStaminaComponent> StaminaComp;
+
+	UPROPERTY()
+	TObjectPtr<UCameraBobComponent> CameraBobComp;
 
 	// Кэш камеры
 	UPROPERTY()

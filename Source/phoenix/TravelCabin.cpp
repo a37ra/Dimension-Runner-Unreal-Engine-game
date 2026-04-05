@@ -1,5 +1,9 @@
 // TravelCabin.cpp — Полная логика кабины телепортации
 #include "TravelCabin.h"
+#include "CabinInventoryComponent.h"
+#include "CabinSlotWidget.h"
+#include "CabinStorageSubsystem.h"
+#include "ArtifactBase.h"
 
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -107,9 +111,21 @@ void ATravelCabin::BeginPlay()
 		GetWorldTimerManager().SetTimer(DelayHandle, [this]()
 		{
 			OpenDoors();
-			SetScreenText(TEXT("\u0413\u041E\u0422\u041E\u0412\u041E"));
+			SetScreenText(TEXT("\u0413\u041E\u0422\u041E\u0412\u041E"), 0.4f);
 			SetTimerTextColor(FLinearColor(0.0f, 1.0f, 0.0f, 1.0f)); // Зелёный
-		}, 0.5f, false); // маленькая задержка для инициализации виджета
+		}, 0.5f, false);
+	}
+
+	// 6. Инвентарь кабины
+	CabinInventory = NewObject<UCabinInventoryComponent>(this);
+	if (CabinInventory)
+	{
+		CabinInventory->RegisterComponent();
+		CabinInventory->Initialize(CachedInventoryTrig);
+		CabinInventory->OnInventoryChanged.AddDynamic(this, &ATravelCabin::OnInventoryChangedHandler);
+
+		// Восстановить сохранённый инвентарь (после смены уровня)
+		RestoreCabinFromStorage();
 	}
 }
 
@@ -131,6 +147,17 @@ void ATravelCabin::Tick(float DeltaTime)
 
 void ATravelCabin::OnInteract(AActor* Interactor)
 {
+	// Проверка 0: Кнопки инвентаря?
+	if (TryHandleButtonInteract(Interactor))
+		return;
+
+	// Проверка 0.5: Игрок смотрит на ОСНОВНУЮ кнопку запуска?
+	if (!IsLookingAtMainButton(Interactor))
+	{
+		UE_LOG(LogCabin, Log, TEXT("Cabin: Interact rejected \u2014 not looking at main button."));
+		return;
+	}
+
 	// Проверка 1: Игрок внутри?
 	if (!bIsPlayerInside)
 	{
@@ -156,6 +183,7 @@ void ATravelCabin::OnInteract(AActor* Interactor)
 
 		// Сохраняем новый лут
 		SavePlayerInventoryToGI();
+		SaveCabinToStorage();
 		
 		// Снимаем статус миссии, ставим перегрев
 		GI_SetCabinStatus(false);
@@ -192,6 +220,7 @@ void ATravelCabin::OnInteract(AActor* Interactor)
 
 	// Сохраняем инвентарь игрока в GI_Phoenix
 	SavePlayerInventoryToGI();
+	SaveCabinToStorage();
 
 	// Ставим статус "На миссии" в GI
 	GI_SetCabinStatus(true);
@@ -237,6 +266,7 @@ void ATravelCabin::TickCabinTimer()
 				// === СЦЕНАРИЙ Б: СПАСЕНИЕ ===
 				// Сохраняем новый лут
 				SavePlayerInventoryToGI();
+				SaveCabinToStorage();
 				// Снимаем статус миссии, ставим перегрев
 				GI_SetCabinStatus(false);
 				GI_SetOverheatStatus(true);
@@ -276,7 +306,7 @@ void ATravelCabin::TickCabinTimer()
 			// Включаем кнопку, зелёный экран
 			EnableButton();
 			SetCabinState(ECabinState::Ready);
-			SetScreenText(TEXT("\u0413\u041E\u0422\u041E\u0412\u041E"));
+			SetScreenText(TEXT("\u0413\u041E\u0422\u041E\u0412\u041E"), 0.4f);
 			SetTimerTextColor(FLinearColor(0.0f, 1.0f, 0.0f, 1.0f));
 		}
 	}
@@ -346,6 +376,7 @@ void ATravelCabin::OnDoorTimelineFinished()
 				// На всякий случай: игрок всё-таки успел запрыгнуть
 				UE_LOG(LogCabin, Warning, TEXT("Cabin: PlayerAbandoned but player IS inside! Doing rescue instead."));
 				SavePlayerInventoryToGI();
+				SaveCabinToStorage();
 				GI_SetCabinStatus(false);
 				GI_SetOverheatStatus(true);
 				SetCabinState(ECabinState::Returning);
@@ -429,10 +460,20 @@ void ATravelCabin::FindBlueprintComponents()
 			DoorL = Cast<UStaticMeshComponent>(Comp);
 		else if (Name.Contains(TEXT("Door_R")) || Name.Contains(TEXT("DoorR")))
 			DoorR = Cast<UStaticMeshComponent>(Comp);
+		else if (Name.Contains(TEXT("Button_Load")) || Name.Contains(TEXT("ButtonLoad")))
+			CachedButtonLoad = Cast<UPrimitiveComponent>(Comp);
+		else if (Name.Contains(TEXT("Button_Select")) || Name.Contains(TEXT("ButtonSelect")))
+			CachedButtonSelect = Cast<UPrimitiveComponent>(Comp);
+		else if (Name.Contains(TEXT("Button_Unload")) || Name.Contains(TEXT("ButtonUnload")))
+			CachedButtonUnload = Cast<UPrimitiveComponent>(Comp);
 		else if (Name.Contains(TEXT("Button")))
 			CachedButton = Cast<UStaticMeshComponent>(Comp);
+		else if (Name.Contains(TEXT("InventoryTrig")))
+			CachedInventoryTrig = Cast<UPrimitiveComponent>(Comp);
 		else if (Name.Contains(TEXT("Trigger")))
 			CachedTrigger = Cast<UPrimitiveComponent>(Comp);
+		else if (Name.Contains(TEXT("SlotScreen")))
+			CachedSlotScreen = Cast<UWidgetComponent>(Comp);
 		else if (Name.Contains(TEXT("Screen")))
 			CachedScreen = Cast<UWidgetComponent>(Comp);
 		else if (Name.Contains(TEXT("Blocker")))
@@ -485,12 +526,25 @@ void ATravelCabin::UpdateScreenText(int32 Seconds)
 	SetScreenText(TimeStr);
 }
 
-void ATravelCabin::SetScreenText(const FString& Text)
+void ATravelCabin::SetScreenText(const FString& Text, float FontScale)
 {
 	UTextBlock* TimerText = GetTimerTextWidget();
 	if (TimerText)
 	{
+		// Кэшируем оригинальный размер шрифта при первом вызове
+		if (CachedOriginalFontSize == 0)
+		{
+			CachedOriginalFontSize = TimerText->GetFont().Size;
+		}
+
 		TimerText->SetText(FText::FromString(Text));
+		TimerText->SetJustification(ETextJustify::Center);
+		TimerText->SetAutoWrapText(true);
+
+		// Масштабируем шрифт
+		FSlateFontInfo FontInfo = TimerText->GetFont();
+		FontInfo.Size = FMath::RoundToInt32(CachedOriginalFontSize * FontScale);
+		TimerText->SetFont(FontInfo);
 	}
 }
 
@@ -781,6 +835,10 @@ void ATravelCabin::SavePlayerInventoryToGI()
 void ATravelCabin::PerformTeleport()
 {
 	UE_LOG(LogCabin, Log, TEXT("Cabin: TELEPORTING to %s"), *TargetLevelName.ToString());
+	
+	// Финальное сохранение инвентаря перед прыжком (на всякий случай)
+	SaveCabinToStorage();
+	
 	UGameplayStatics::OpenLevel(this, TargetLevelName);
 }
 
@@ -916,4 +974,210 @@ void ATravelCabin::FinishSingularity()
 {
 	bSingularityActive = false;
 	Destroy();
+}
+
+// ============================================================
+// ИНВЕНТАРЬ КАБИНЫ — КНОПКИ + ЭКРАН
+// ============================================================
+
+bool ATravelCabin::TryHandleButtonInteract(AActor* Interactor)
+{
+	if (!CabinInventory) return false;
+	if (!CachedButtonLoad && !CachedButtonSelect && !CachedButtonUnload) return false;
+
+	ACharacter* Char = Cast<ACharacter>(Interactor);
+	if (!Char) return false;
+
+	APlayerController* PC = Cast<APlayerController>(Char->GetController());
+	if (!PC) return false;
+
+	// Повторный трейс чтобы определить какую кнопку нажали
+	FVector CamLoc;
+	FRotator CamRot;
+	PC->GetPlayerViewPoint(CamLoc, CamRot);
+
+	FCollisionQueryParams Params;
+	Params.AddIgnoredActor(Interactor);
+
+	// Используем SweepMulti со сферой, чтобы попадать по мелким кнопкам было легко
+	// даже если луч чуть-чуть задевает стену кабины
+	TArray<FHitResult> Hits;
+	FCollisionShape Sphere = FCollisionShape::MakeSphere(15.0f); // 15см радиус "толстого луча"
+
+	if (!GetWorld()->SweepMultiByChannel(Hits, CamLoc, CamLoc + CamRot.Vector() * 300.0f,
+		FQuat::Identity, ECC_Visibility, Sphere, Params))
+	{
+		return false;
+	}
+
+	for (const FHitResult& HitResult : Hits)
+	{
+		UPrimitiveComponent* HitComp = HitResult.GetComponent();
+		if (!HitComp) continue;
+
+		if (HitComp == CachedButtonLoad)
+		{
+			CabinInventory->LoadItem();
+			UE_LOG(LogCabin, Log, TEXT("Cabin: Button LOAD pressed."));
+			return true;
+		}
+		if (HitComp == CachedButtonSelect)
+		{
+			CabinInventory->SelectNextSlot();
+			UE_LOG(LogCabin, Log, TEXT("Cabin: Button SELECT pressed."));
+			return true;
+		}
+		if (HitComp == CachedButtonUnload)
+		{
+			CabinInventory->UnloadItem();
+			UE_LOG(LogCabin, Log, TEXT("Cabin: Button UNLOAD pressed."));
+			return true;
+		}
+	}
+
+	// Ни одна инвентарная кнопка не совпала, но трейс попал на компонент кабины —
+	// НЕ прокидываем в основную логику, чтобы не закрыть кабину
+	return false;
+}
+
+bool ATravelCabin::IsLookingAtMainButton(AActor* Interactor) const
+{
+	if (!CachedButton) return true; // Нет кнопки — разрешаем (обратная совместимость)
+
+	const ACharacter* Char = Cast<ACharacter>(Interactor);
+	if (!Char) return false;
+
+	APlayerController* PC = Cast<APlayerController>(Char->GetController());
+	if (!PC) return false;
+
+	FVector CamLoc;
+	FRotator CamRot;
+	PC->GetPlayerViewPoint(CamLoc, CamRot);
+
+	FCollisionQueryParams Params;
+	Params.AddIgnoredActor(Interactor);
+
+	TArray<FHitResult> Hits;
+	FCollisionShape Sphere = FCollisionShape::MakeSphere(15.0f);
+
+	if (GetWorld()->SweepMultiByChannel(Hits, CamLoc, CamLoc + CamRot.Vector() * 300.0f,
+		FQuat::Identity, ECC_Visibility, Sphere, Params))
+	{
+		for (const FHitResult& HitResult : Hits)
+		{
+			if (HitResult.GetComponent() == CachedButton)
+			{
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
+void ATravelCabin::OnInventoryChangedHandler()
+{
+	UpdateSlotScreen();
+	SaveCabinToStorage();
+}
+
+void ATravelCabin::UpdateSlotScreen()
+{
+	UCabinSlotWidget* SlotWidget = GetSlotWidget();
+	if (!SlotWidget || !CabinInventory) return;
+
+	const int32 Idx = CabinInventory->GetActiveSlotIndex();
+	const FCabinSlot Slot = CabinInventory->GetSlotInfo(Idx);
+	SlotWidget->RefreshSlotDisplay(Slot, Idx, CabinInventory->GetSlotCount());
+}
+
+UCabinSlotWidget* ATravelCabin::GetSlotWidget() const
+{
+	if (!CachedSlotScreen) return nullptr;
+	return Cast<UCabinSlotWidget>(CachedSlotScreen->GetUserWidgetObject());
+}
+
+// ============================================================
+// СОХРАНЕНИЕ / ВОССТАНОВЛЕНИЕ ИНВЕНТАРЯ КАБИНЫ
+// ============================================================
+
+void ATravelCabin::SaveCabinToStorage()
+{
+	if (!CabinInventory) return;
+
+	UGameInstance* GI = GetGameInstance();
+	if (!GI) return;
+
+	UCabinStorageSubsystem* Storage = GI->GetSubsystem<UCabinStorageSubsystem>();
+	if (!Storage) return;
+
+	Storage->SavedSlots.Empty();
+	Storage->SavedActiveSlot = CabinInventory->GetActiveSlotIndex();
+
+	for (int32 i = 0; i < CabinInventory->GetSlotCount(); i++)
+	{
+		FCabinSlot Slot = CabinInventory->GetSlotInfo(i);
+		FSavedCabinSlot Saved;
+		Saved.bOccupied = Slot.bOccupied;
+
+		if (Slot.bOccupied && Slot.Artifact)
+		{
+			Saved.ArtifactClass = Slot.Artifact->GetClass();
+			Saved.ItemHP = Slot.Artifact->ItemHP;
+		}
+
+		Storage->SavedSlots.Add(Saved);
+	}
+
+	UE_LOG(LogCabin, Log, TEXT("Cabin: Saved %d inventory slots to storage."),
+		CabinInventory->GetOccupiedCount());
+}
+
+void ATravelCabin::RestoreCabinFromStorage()
+{
+	if (!CabinInventory) return;
+
+	UGameInstance* GI = GetGameInstance();
+	if (!GI) return;
+
+	UCabinStorageSubsystem* Storage = GI->GetSubsystem<UCabinStorageSubsystem>();
+	if (!Storage || !Storage->HasSavedData()) return;
+
+	int32 RestoredCount = 0;
+
+	for (int32 i = 0; i < Storage->SavedSlots.Num() && i < CabinInventory->GetSlotCount(); i++)
+	{
+		const FSavedCabinSlot& Saved = Storage->SavedSlots[i];
+		if (!Saved.bOccupied || !Saved.ArtifactClass) continue;
+
+		// Спавним артефакт (над кабиной, он всё равно будет скрыт)
+		FVector SpawnLoc = GetActorLocation() + FVector(0.f, 0.f, 500.f);
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+		AArtifactBase* NewArtifact = GetWorld()->SpawnActor<AArtifactBase>(
+			Saved.ArtifactClass, SpawnLoc, FRotator::ZeroRotator, SpawnParams);
+
+		if (NewArtifact)
+		{
+			// Данные из DataTable загрузятся автоматически в BeginPlay,
+			// но нам нужно восстановить HP
+			NewArtifact->ItemHP = Saved.ItemHP;
+
+			CabinInventory->StoreArtifact(i, NewArtifact);
+			RestoredCount++;
+		}
+	}
+
+	// Восстановить активный слот
+	CabinInventory->SetActiveSlotIndex(Storage->SavedActiveSlot);
+
+	// Очистить сохранение
+	Storage->ClearSavedData();
+
+	if (RestoredCount > 0)
+	{
+		UE_LOG(LogCabin, Log, TEXT("Cabin: Restored %d artifacts from storage."), RestoredCount);
+		CabinInventory->OnInventoryChanged.Broadcast();
+	}
 }

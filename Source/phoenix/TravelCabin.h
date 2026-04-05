@@ -16,6 +16,9 @@ class UPostProcessComponent;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
 class UPointLightComponent;
+class UCabinInventoryComponent;
+class UCabinSlotWidget;
+class UBoxComponent;
 
 /**
  * Состояние кабины
@@ -153,6 +156,14 @@ protected:
 
 	TObjectPtr<UWidgetComponent> CachedScreen;
 
+	// Инвентарь кабины
+	TObjectPtr<UCabinInventoryComponent> CabinInventory;
+	TObjectPtr<UPrimitiveComponent> CachedButtonLoad;
+	TObjectPtr<UPrimitiveComponent> CachedButtonSelect;
+	TObjectPtr<UPrimitiveComponent> CachedButtonUnload;
+	TObjectPtr<UPrimitiveComponent> CachedInventoryTrig;
+	TObjectPtr<UWidgetComponent> CachedSlotScreen;
+
 	// ==================== ВНУТРЕННИЕ ====================
 
 	FTimeline DoorTimeline;
@@ -211,8 +222,9 @@ protected:
 	// Экран кабины
 	UTextBlock* GetTimerTextWidget() const;
 	void UpdateScreenText(int32 Seconds);
-	void SetScreenText(const FString& Text);
+	void SetScreenText(const FString& Text, float FontScale = 1.0f);
 	void SetTimerTextColor(const FLinearColor& Color);
+	int32 CachedOriginalFontSize = 0;
 
 	// Таймер
 	void StartCabinTimer();
@@ -235,4 +247,15 @@ protected:
 
 	// Телепорт
 	void PerformTeleport();
+
+	// Инвентарь кабины
+	bool TryHandleButtonInteract(AActor* Interactor);
+	bool IsLookingAtMainButton(AActor* Interactor) const;
+	void UpdateSlotScreen();
+	UCabinSlotWidget* GetSlotWidget() const;
+	void SaveCabinToStorage();
+	void RestoreCabinFromStorage();
+
+	UFUNCTION()
+	void OnInventoryChangedHandler();
 };

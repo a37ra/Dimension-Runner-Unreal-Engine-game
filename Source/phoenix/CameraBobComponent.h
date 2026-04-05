@@ -81,6 +81,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Juicy Camera|General")
 	float Smoothing = 12.0f;
 
+	// ==================== ВЕС → КАМЕРА ====================
+
+	/** Установить множитель чувствительности от веса (0.3–1.0) */
+	UFUNCTION(BlueprintCallable, Category = "Juicy Camera|Weight")
+	void SetWeightSensitivity(float Multiplier);
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -105,4 +111,11 @@ private:
 	float PrevYaw = 0.0f;       // Yaw предыдущего кадра (для расчёта скорости поворота)
 	bool bWasInAir = false;     // Был ли в воздухе (для приземления)
 	bool bReady = false;
+
+	// Вес → чувствительность мыши
+	float TargetSensitivityMult = 1.0f;
+	float CurrentSensitivityMult = 1.0f;
+	float BaseYawScale = 1.0f;
+	float BasePitchScale = -1.0f;
+	bool bScalesCached = false;
 };

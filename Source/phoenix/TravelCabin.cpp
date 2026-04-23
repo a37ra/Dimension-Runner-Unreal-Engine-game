@@ -1,5 +1,6 @@
 // TravelCabin.cpp — Полная логика кабины телепортации
 #include "TravelCabin.h"
+#include "GI_DimensionRunner.h"
 #include "CabinInventoryComponent.h"
 #include "CabinSlotWidget.h"
 #include "CabinStorageSubsystem.h"
@@ -56,13 +57,18 @@ void ATravelCabin::BeginPlay()
 	if (DoorL) DoorL->SetRelativeLocation(DoorLClosedPos);
 	if (DoorR) DoorR->SetRelativeLocation(DoorRClosedPos);
 
-	// 5. Спрашиваем GI_Phoenix: где мы?
-	bool bOnMission = GI_CheckCabinStatus();
-	bool bOverheated = GI_CheckOverheatStatus();
+	// 5. Спрашиваем GameInstance: где мы?
+	UGI_DimensionRunner* GI = GetDimensionRunnerGI();
+	const bool bOnMission = GI ? GI->CheckCabinStatus() : false;
+	const bool bOverheated = GI ? GI->CheckOverheatStatus() : false;
 
 	if (bOnMission)
 	{
 		// === ЭКСПЕДИЦИЯ: мы на L_WorldA ===
+		if (GI && GI->IsOrderActive())
+		{
+			ExpeditionTime = FMath::RoundToInt32(GI->GetCurrentOrder().TimerSeconds);
+		}
 		UE_LOG(LogCabin, Log, TEXT("Cabin: Expedition mode. Timer %d sec."), ExpeditionTime);
 
 		SetCabinState(ECabinState::Expedition);
@@ -105,6 +111,15 @@ void ATravelCabin::BeginPlay()
 
 		SetCabinState(ECabinState::Ready);
 		EnableButton();
+
+		// Генерируем заказ если его нет (первый запуск / новая игра)
+		if (GI)
+		{
+			if (!GI->IsOrderActive())
+			{
+				GI->GenerateNextOrder();
+			}
+		}
 
 		// Двери сразу открыты, экран зелёный "ГОТОВО"
 		FTimerHandle DelayHandle;
@@ -159,6 +174,12 @@ void ATravelCabin::OnInteract(AActor* Interactor)
 	}
 
 	// Проверка 1: Игрок внутри?
+	if (CachedTrigger)
+	{
+		ACharacter* PlayerChar = UGameplayStatics::GetPlayerCharacter(this, 0);
+		bIsPlayerInside = CachedTrigger->IsOverlappingActor(PlayerChar);
+	}
+
 	if (!bIsPlayerInside)
 	{
 		UE_LOG(LogCabin, Warning, TEXT("Cabin: Interact rejected \u2014 player not inside."));
@@ -181,17 +202,18 @@ void ATravelCabin::OnInteract(AActor* Interactor)
 		DisableButton();
 		StopCabinTimer();
 
-		// Сохраняем новый лут
-		SavePlayerInventoryToGI();
+		// Сохраняем новый лут кабины
 		SaveCabinToStorage();
 		
-		// Снимаем статус миссии, ставим перегрев
-		GI_SetCabinStatus(false);
-		GI_SetOverheatStatus(true);
+		if (UGI_DimensionRunner* GI = GetDimensionRunnerGI())
+		{
+			GI->SetCabinStatus(false);
+			GI->SetOverheatStatus(true);
+		}
 		
 		// Назад в Лабораторию
 		SetCabinState(ECabinState::Returning);
-		TargetLevelName = TEXT("L_Laboratory");
+		TargetLevelName = GetBaseLevelName();
 		PendingAction = EPendingAction::TeleportHome;
 		CloseDoors();
 		return;
@@ -218,12 +240,22 @@ void ATravelCabin::OnInteract(AActor* Interactor)
 	SetCabinState(ECabinState::Launching);
 	DisableButton();
 
-	// Сохраняем инвентарь игрока в GI_Phoenix
-	SavePlayerInventoryToGI();
+	// Сохраняем инвентарь кабины
 	SaveCabinToStorage();
 
-	// Ставим статус "На миссии" в GI
-	GI_SetCabinStatus(true);
+	// Ставим статус "На миссии" в GI + берём уровень из текущего заказа
+	if (UGI_DimensionRunner* GI = GetDimensionRunnerGI())
+	{
+		GI->SetCabinStatus(true);
+		// Уровень назначения из текущего заказа (если есть), иначе используем TargetLevelName из Блюпринта
+		if (GI->IsOrderActive())
+		{
+			TargetLevelName = GI->GetCurrentMissionLevel();
+			ExpeditionTime = FMath::RoundToInt32(GI->GetCurrentOrder().TimerSeconds);
+			UE_LOG(LogCabin, Log, TEXT("Cabin: Mission level from order: %s (Timer: %d sec)"),
+				*TargetLevelName.ToString(), ExpeditionTime);
+		}
+	}
 
 	// Закрываем двери → после закрытия телепортируемся
 	PendingAction = EPendingAction::TeleportOut;
@@ -258,6 +290,13 @@ void ATravelCabin::TickCabinTimer()
 		{
 			// Время вышло!
 			StopCabinTimer();
+
+			if (CachedTrigger)
+			{
+				ACharacter* PlayerChar = UGameplayStatics::GetPlayerCharacter(this, 0);
+				bIsPlayerInside = CachedTrigger->IsOverlappingActor(PlayerChar);
+			}
+
 			UE_LOG(LogCabin, Log, TEXT("Cabin: TIME IS UP. Player inside: %s"),
 				bIsPlayerInside ? TEXT("YES") : TEXT("NO"));
 
@@ -265,16 +304,16 @@ void ATravelCabin::TickCabinTimer()
 			{
 				// === СЦЕНАРИЙ Б: СПАСЕНИЕ ===
 				// Сохраняем новый лут
-				SavePlayerInventoryToGI();
 				SaveCabinToStorage();
-				// Снимаем статус миссии, ставим перегрев
-				GI_SetCabinStatus(false);
-				GI_SetOverheatStatus(true);
+				if (UGI_DimensionRunner* GI = GetDimensionRunnerGI())
+				{
+					GI->SetCabinStatus(false);
+					GI->SetOverheatStatus(true);
+				}
 				// Закрываем двери → телепорт домой
 				SetCabinState(ECabinState::Returning);
 				
-				// ПРИНУДИТЕЛЬНО возвращаемся в Лабораторию!
-				TargetLevelName = TEXT("L_Laboratory");
+				TargetLevelName = GetBaseLevelName();
 				
 				PendingAction = EPendingAction::TeleportHome;
 				CloseDoors();
@@ -282,9 +321,12 @@ void ATravelCabin::TickCabinTimer()
 			else
 			{
 				// === СЦЕНАРИЙ А: ИГРОК НЕ УСПЕЛ ===
-				// Даем команду закрыть двери и ставим смерть.
-				GI_SetCabinStatus(false);
-				GI_SetOverheatStatus(true); // кабина возвращается пустой и перегретой
+				if (UGI_DimensionRunner* GI = GetDimensionRunnerGI())
+				{
+					GI->SetCabinStatus(false);
+					GI->SetOverheatStatus(true);
+					GI->FailOrder(); // Штраф -12% денег, -1 секция
+				}
 				PendingAction = EPendingAction::PlayerAbandoned;
 				CloseDoors();
 			}
@@ -301,7 +343,12 @@ void ATravelCabin::TickCabinTimer()
 			UE_LOG(LogCabin, Log, TEXT("Cabin: Cooldown complete. Ready!"));
 
 			// Снимаем перегрев
-			GI_SetOverheatStatus(false);
+			if (UGI_DimensionRunner* GI = GetDimensionRunnerGI())
+			{
+				GI->SetOverheatStatus(false);
+				// День и заказ НЕ генерируем здесь —
+				// это делает DeliveryPoint (при сдаче) или FailOrder (при смерти/таймере)
+			}
 
 			// Включаем кнопку, зелёный экран
 			EnableButton();
@@ -375,12 +422,14 @@ void ATravelCabin::OnDoorTimelineFinished()
 			{
 				// На всякий случай: игрок всё-таки успел запрыгнуть
 				UE_LOG(LogCabin, Warning, TEXT("Cabin: PlayerAbandoned but player IS inside! Doing rescue instead."));
-				SavePlayerInventoryToGI();
 				SaveCabinToStorage();
-				GI_SetCabinStatus(false);
-				GI_SetOverheatStatus(true);
+				if (UGI_DimensionRunner* GI = GetDimensionRunnerGI())
+				{
+					GI->SetCabinStatus(false);
+					GI->SetOverheatStatus(true);
+				}
 				SetCabinState(ECabinState::Returning);
-				TargetLevelName = TEXT("L_Laboratory");
+				TargetLevelName = GetBaseLevelName();
 				PendingAction = EPendingAction::TeleportHome;
 				// Двери уже закрыты, просто телепортируемся
 				FTimerHandle TeleportHandle;
@@ -606,232 +655,24 @@ void ATravelCabin::SetCabinState(ECabinState NewState)
 }
 
 // ============================================================
-// GI_PHOENIX — взаимодействие через UE Reflection
+// GameInstance — прямой доступ (C++ вместо Reflection)
 // ============================================================
 
-UObject* ATravelCabin::GetGIPhoenix() const
+UGI_DimensionRunner* ATravelCabin::GetDimensionRunnerGI() const
 {
-	UGameInstance* GI = UGameplayStatics::GetGameInstance(this);
-	if (!GI) return nullptr;
+	UGameInstance* GI = GetGameInstance();
+	UGI_DimensionRunner* DRGI = Cast<UGI_DimensionRunner>(GI);
 
-	// GI_Phoenix — Blueprint класс. Его скомпилированный класс = "GI_Phoenix_C"
-	if (GI->GetClass()->GetName().Contains(TEXT("GI_Phoenix")))
-		return GI;
-
-	UE_LOG(LogCabin, Warning, TEXT("Cabin: GameInstance is NOT GI_Phoenix! Class: %s"),
-		*GI->GetClass()->GetName());
-	return nullptr;
-}
-
-bool ATravelCabin::GI_CheckCabinStatus()
-{
-	UObject* GI = GetGIPhoenix();
-	if (!GI) return false;
-
-	UFunction* Func = GI->GetClass()->FindFunctionByName(TEXT("CheckCabinStatus"));
-	if (Func)
+	if (!DRGI && GI)
 	{
-		struct { bool IsActive; } Params;
-		Params.IsActive = false;
-		GI->ProcessEvent(Func, &Params);
-		return Params.IsActive;
+		UE_LOG(LogCabin, Warning,
+			TEXT("Cabin: GameInstance is NOT UGI_DimensionRunner! Class: %s. Set it in Project Settings."),
+			*GI->GetClass()->GetName());
 	}
-
-	// Фолбэк: ищем переменные напрямую (разные возможные имена)
-	TArray<FName> PossibleNames = { TEXT("CabinStatus"), TEXT("bCabinStatus"), TEXT("bIsActivated"), TEXT("IsActivated") };
-	for (FName PropName : PossibleNames)
-	{
-		FBoolProperty* Prop = FindFProperty<FBoolProperty>(GI->GetClass(), PropName);
-		if (Prop)
-		{
-			return Prop->GetPropertyValue_InContainer(GI);
-		}
-	}
-
-	UE_LOG(LogCabin, Warning, TEXT("Cabin: GI CabinStatus not found!"));
-	return false;
-}
-
-bool ATravelCabin::GI_CheckOverheatStatus()
-{
-	UObject* GI = GetGIPhoenix();
-	if (!GI) return false;
-
-	UFunction* Func = GI->GetClass()->FindFunctionByName(TEXT("CheckOverheatStatus"));
-	if (Func)
-	{
-		struct { bool IsOverheated; } Params;
-		Params.IsOverheated = false;
-		GI->ProcessEvent(Func, &Params);
-		return Params.IsOverheated;
-	}
-
-	// Фолбэк
-	TArray<FName> PossibleNames = { TEXT("OverheatStatus"), TEXT("bOverheatStatus"), TEXT("Overheat"), TEXT("bOverheat"), TEXT("bIsOverheated") };
-	for (FName PropName : PossibleNames)
-	{
-		FBoolProperty* Prop = FindFProperty<FBoolProperty>(GI->GetClass(), PropName);
-		if (Prop)
-		{
-			return Prop->GetPropertyValue_InContainer(GI);
-		}
-	}
-
-	UE_LOG(LogCabin, Warning, TEXT("Cabin: GI OverheatStatus not found!"));
-	return false;
-}
-
-void ATravelCabin::GI_SetCabinStatus(bool bActive)
-{
-	UObject* GI = GetGIPhoenix();
-	if (!GI) return;
-
-	UFunction* Func = GI->GetClass()->FindFunctionByName(TEXT("SetCabinStatus"));
-	if (Func)
-	{
-		struct { bool bIsActive; } Params;
-		Params.bIsActive = bActive;
-		GI->ProcessEvent(Func, &Params);
-		return;
-	}
-
-	// Фолбэк
-	TArray<FName> PossibleNames = { TEXT("CabinStatus"), TEXT("bCabinStatus"), TEXT("bIsActivated"), TEXT("IsActivated") };
-	for (FName PropName : PossibleNames)
-	{
-		FBoolProperty* Prop = FindFProperty<FBoolProperty>(GI->GetClass(), PropName);
-		if (Prop)
-		{
-			Prop->SetPropertyValue_InContainer(GI, bActive);
-			return;
-		}
-	}
-	UE_LOG(LogCabin, Warning, TEXT("Cabin: Cannot set CabinStatus! No property found."));
-}
-
-void ATravelCabin::GI_SetOverheatStatus(bool bOverheated)
-{
-	UObject* GI = GetGIPhoenix();
-	if (!GI) return;
-
-	UFunction* Func = GI->GetClass()->FindFunctionByName(TEXT("SetOverheatStatus"));
-	if (Func)
-	{
-		struct { bool bIsOverheated; } Params;
-		Params.bIsOverheated = bOverheated;
-		GI->ProcessEvent(Func, &Params);
-		return;
-	}
-
-	// Фолбэк
-	TArray<FName> PossibleNames = { TEXT("OverheatStatus"), TEXT("bOverheatStatus"), TEXT("Overheat"), TEXT("bOverheat"), TEXT("bIsOverheated") };
-	for (FName PropName : PossibleNames)
-	{
-		FBoolProperty* Prop = FindFProperty<FBoolProperty>(GI->GetClass(), PropName);
-		if (Prop)
-		{
-			Prop->SetPropertyValue_InContainer(GI, bOverheated);
-			return;
-		}
-	}
-	UE_LOG(LogCabin, Error, TEXT("Cabin: Cannot set overheat status! No function or property found."));
+	return DRGI;
 }
 
 // ============================================================
-// СОХРАНЕНИЕ ИНВЕНТАРЯ
-// ============================================================
-
-void ATravelCabin::SavePlayerInventoryToGI()
-{
-	UObject* GI = GetGIPhoenix();
-	if (!GI) return;
-
-	ACharacter* PlayerChar = UGameplayStatics::GetPlayerCharacter(this, 0);
-	if (!PlayerChar) return;
-
-	// Ищем BP_InventoryComponent на игроке
-	UActorComponent* InvComp = nullptr;
-	for (UActorComponent* Comp : PlayerChar->GetComponents())
-	{
-		if (Comp && (Comp->GetClass()->GetName().Contains(TEXT("Inventory")) || Comp->GetClass()->GetName().Contains(TEXT("Inv"))))
-		{
-			InvComp = Comp;
-			break;
-		}
-	}
-
-	if (!InvComp)
-	{
-		UE_LOG(LogCabin, Warning, TEXT("Cabin: Inventory Component NOT FOUND on player! Check if it has 'Inventory' in its name."));
-		return;
-	}
-
-	// Копируем свойства через Reflection с перебором возможных имён
-	int32 CopiedCount = 0;
-	auto CopyProperty = [&](const TArray<FName>& SrcNames, const TArray<FName>& DstNames)
-	{
-		FProperty* Src = nullptr;
-		FProperty* Dst = nullptr;
-		FName FinalSrc, FinalDst;
-
-		for (FName S : SrcNames) { Src = InvComp->GetClass()->FindPropertyByName(S); if (Src) { FinalSrc = S; break; } }
-		for (FName D : DstNames) { Dst = GI->GetClass()->FindPropertyByName(D); if (Dst) { FinalDst = D; break; } }
-
-		if (Src && Dst)
-		{
-			void* SrcData = Src->ContainerPtrToValuePtr<void>(InvComp);
-			void* DstData = Dst->ContainerPtrToValuePtr<void>(GI);
-			if (SrcData && DstData)
-			{
-				Src->CopyCompleteValue(DstData, SrcData);
-				CopiedCount++;
-				UE_LOG(LogCabin, Log, TEXT("Cabin: Copied %s → %s"), *FinalSrc.ToString(), *FinalDst.ToString());
-			}
-		}
-		else
-		{
-			UE_LOG(LogCabin, Warning, TEXT("Cabin: Property copy failed! Checked sources (e.g. %s) -> Dests (e.g. %s)"),
-				SrcNames.Num() > 0 ? *SrcNames[0].ToString() : TEXT("None"),
-				DstNames.Num() > 0 ? *DstNames[0].ToString() : TEXT("None"));
-		}
-	};
-
-	CopyProperty(
-		{TEXT("InventorySlots"), TEXT("Inventory"), TEXT("Items")},
-		{TEXT("SavedInventory"), TEXT("SavedInventorySlots"), TEXT("Inventory")}
-	);
-	CopyProperty(
-		{TEXT("HotbarSlot1"), TEXT("HotbarSlot_1"), TEXT("Hotbar1")},
-		{TEXT("Saved_HotbarSlot1"), TEXT("SavedHotbarSlot1"), TEXT("Saved_HotbarSlot_1")}
-	);
-	CopyProperty(
-		{TEXT("HotbarCount1"), TEXT("HotbarCount_1"), TEXT("Hotbar1Count")},
-		{TEXT("Saved_HotbarCount1"), TEXT("SavedHotbarCount1"), TEXT("Saved_HotbarCount_1")}
-	);
-	CopyProperty(
-		{TEXT("HotbarSlot2"), TEXT("HotbarSlot_2"), TEXT("Hotbar2")},
-		{TEXT("Saved_HotbarSlot2"), TEXT("SavedHotbarSlot2"), TEXT("Saved_HotbarSlot_2")}
-	);
-	CopyProperty(
-		{TEXT("HotbarCount2"), TEXT("HotbarCount_2"), TEXT("Hotbar2Count")},
-		{TEXT("Saved_HotbarCount2"), TEXT("SavedHotbarCount2"), TEXT("Saved_HotbarCount_2")}
-	);
-
-	// Вызываем SetInventorySaved() на GI (как в BP_Portal)
-	UFunction* SetSavedFunc = GI->GetClass()->FindFunctionByName(TEXT("SetInventorySaved"));
-	if (SetSavedFunc)
-	{
-		GI->ProcessEvent(SetSavedFunc, nullptr);
-		UE_LOG(LogCabin, Log, TEXT("Cabin: Called SetInventorySaved() on GI."));
-	}
-
-	UE_LOG(LogCabin, Log, TEXT("Cabin: Inventory saved to GI_Phoenix! Copied %d properties."), CopiedCount);
-}
-
-// ============================================================
-// ТЕЛЕПОРТ
-// ============================================================
-
 void ATravelCabin::PerformTeleport()
 {
 	UE_LOG(LogCabin, Log, TEXT("Cabin: TELEPORTING to %s"), *TargetLevelName.ToString());
@@ -991,52 +832,53 @@ bool ATravelCabin::TryHandleButtonInteract(AActor* Interactor)
 	APlayerController* PC = Cast<APlayerController>(Char->GetController());
 	if (!PC) return false;
 
-	// Повторный трейс чтобы определить какую кнопку нажали
+	// Повторный трейс (геометрический)
 	FVector CamLoc;
 	FRotator CamRot;
 	PC->GetPlayerViewPoint(CamLoc, CamRot);
 
-	FCollisionQueryParams Params;
-	Params.AddIgnoredActor(Interactor);
+	FVector TraceEnd = CamLoc + CamRot.Vector() * 300.0f;
+	UPrimitiveComponent* BestButton = nullptr;
+	float BestDist = 15.0f; // Прицеливание: прощает промах до 15 см от центра луча (уточнили для точности)
 
-	// Используем SweepMulti со сферой, чтобы попадать по мелким кнопкам было легко
-	// даже если луч чуть-чуть задевает стену кабины
-	TArray<FHitResult> Hits;
-	FCollisionShape Sphere = FCollisionShape::MakeSphere(15.0f); // 15см радиус "толстого луча"
+	UPrimitiveComponent* Buttons[] = { CachedButtonLoad, CachedButtonSelect, CachedButtonUnload };
 
-	if (!GetWorld()->SweepMultiByChannel(Hits, CamLoc, CamLoc + CamRot.Vector() * 300.0f,
-		FQuat::Identity, ECC_Visibility, Sphere, Params))
+	for (UPrimitiveComponent* Btn : Buttons)
 	{
-		return false;
-	}
+		if (!Btn) continue;
+		FVector BtnLoc = Btn->GetComponentLocation();
+		
+		if (FVector::Dist(CamLoc, BtnLoc) > 350.0f) continue;
+		
+		FVector PointOnLine = FMath::ClosestPointOnSegment(BtnLoc, CamLoc, TraceEnd);
+		float DistFromLine = FVector::Dist(PointOnLine, BtnLoc);
 
-	for (const FHitResult& HitResult : Hits)
-	{
-		UPrimitiveComponent* HitComp = HitResult.GetComponent();
-		if (!HitComp) continue;
-
-		if (HitComp == CachedButtonLoad)
+		if (DistFromLine < BestDist)
 		{
-			CabinInventory->LoadItem();
-			UE_LOG(LogCabin, Log, TEXT("Cabin: Button LOAD pressed."));
-			return true;
-		}
-		if (HitComp == CachedButtonSelect)
-		{
-			CabinInventory->SelectNextSlot();
-			UE_LOG(LogCabin, Log, TEXT("Cabin: Button SELECT pressed."));
-			return true;
-		}
-		if (HitComp == CachedButtonUnload)
-		{
-			CabinInventory->UnloadItem();
-			UE_LOG(LogCabin, Log, TEXT("Cabin: Button UNLOAD pressed."));
-			return true;
+			BestDist = DistFromLine;
+			BestButton = Btn;
 		}
 	}
 
-	// Ни одна инвентарная кнопка не совпала, но трейс попал на компонент кабины —
-	// НЕ прокидываем в основную логику, чтобы не закрыть кабину
+	if (BestButton == CachedButtonLoad)
+	{
+		CabinInventory->LoadItem();
+		UE_LOG(LogCabin, Log, TEXT("Cabin: Button LOAD pressed."));
+		return true;
+	}
+	if (BestButton == CachedButtonSelect)
+	{
+		CabinInventory->SelectNextSlot();
+		UE_LOG(LogCabin, Log, TEXT("Cabin: Button SELECT pressed."));
+		return true;
+	}
+	if (BestButton == CachedButtonUnload)
+	{
+		CabinInventory->UnloadItem();
+		UE_LOG(LogCabin, Log, TEXT("Cabin: Button UNLOAD pressed."));
+		return true;
+	}
+
 	return false;
 }
 
@@ -1069,6 +911,47 @@ bool ATravelCabin::IsLookingAtMainButton(AActor* Interactor) const
 			{
 				return true;
 			}
+		}
+	}
+
+	return false;
+}
+
+bool ATravelCabin::IsLookingAtAnyInteractable(AActor* Interactor) const
+{
+	if (IsLookingAtMainButton(Interactor)) return true;
+
+	if (!CabinInventory) return false;
+	if (!CachedButtonLoad && !CachedButtonSelect && !CachedButtonUnload) return false;
+
+	const ACharacter* Char = Cast<ACharacter>(Interactor);
+	if (!Char) return false;
+
+	const APlayerController* PC = Cast<APlayerController>(Char->GetController());
+	if (!PC) return false;
+
+	FVector CamLoc;
+	FRotator CamRot;
+	PC->GetPlayerViewPoint(CamLoc, CamRot);
+
+	FVector TraceEnd = CamLoc + CamRot.Vector() * 300.0f;
+	float BestDist = 15.0f; // Прицеливание: прощает промах до 15 см от центра луча
+
+	UPrimitiveComponent* Buttons[] = { CachedButtonLoad, CachedButtonSelect, CachedButtonUnload };
+
+	for (UPrimitiveComponent* Btn : Buttons)
+	{
+		if (!Btn) continue;
+		FVector BtnLoc = Btn->GetComponentLocation();
+		
+		if (FVector::Dist(CamLoc, BtnLoc) > 350.0f) continue;
+		
+		FVector PointOnLine = FMath::ClosestPointOnSegment(BtnLoc, CamLoc, TraceEnd);
+		float DistFromLine = FVector::Dist(PointOnLine, BtnLoc);
+
+		if (DistFromLine < BestDist)
+		{
+			return true;
 		}
 	}
 
@@ -1123,6 +1006,8 @@ void ATravelCabin::SaveCabinToStorage()
 		if (Slot.bOccupied && Slot.Artifact)
 		{
 			Saved.ArtifactClass = Slot.Artifact->GetClass();
+			Saved.ItemID = Slot.Artifact->GetItemID();
+			Saved.ItemName = Slot.Artifact->GetItemName();
 			Saved.ItemHP = Slot.Artifact->ItemHP;
 		}
 
@@ -1161,7 +1046,9 @@ void ATravelCabin::RestoreCabinFromStorage()
 		if (NewArtifact)
 		{
 			// Данные из DataTable загрузятся автоматически в BeginPlay,
-			// но нам нужно восстановить HP
+			// но нам нужно восстановить уникальные свойства
+			NewArtifact->ItemID = Saved.ItemID;
+			NewArtifact->ItemName = Saved.ItemName;
 			NewArtifact->ItemHP = Saved.ItemHP;
 
 			CabinInventory->StoreArtifact(i, NewArtifact);

@@ -76,14 +76,22 @@ void UCarryComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
 	// Трейс не нужен, если уже несём предмет
-	if (!IsCarrying())
+	if (IsCarrying())
 	{
-		UpdateLookTrace();
+		// Если предмет уничтожен или спрятан (например, сдан на базе) — отпускаем
+		if (!IsValid(CarriedArtifact) || CarriedArtifact->IsHidden() || CarriedArtifact->IsPendingKillPending())
+		{
+			Release();
+		}
+		else
+		{
+			UpdateHeldObjectPosition();
+			UpdateBeam();
+		}
 	}
 	else
 	{
-		UpdateHeldObjectPosition();
-		UpdateBeam();
+		UpdateLookTrace();
 	}
 }
 

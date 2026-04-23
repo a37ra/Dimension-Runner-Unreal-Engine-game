@@ -12,6 +12,7 @@ public class phoenix : ModuleRules
 			"CoreUObject",
 			"Engine",
 			"InputCore",
+			"EnhancedInput",
 			"UMG",
 			"SlateCore",
 			"CableComponent",

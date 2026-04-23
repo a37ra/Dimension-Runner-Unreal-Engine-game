@@ -3,6 +3,7 @@
 #include "CabinInventoryComponent.h"
 #include "ArtifactBase.h"
 #include "Components/PrimitiveComponent.h"
+#include "Kismet/GameplayStatics.h"
 
 UCabinInventoryComponent::UCabinInventoryComponent()
 {
@@ -46,35 +47,39 @@ bool UCabinInventoryComponent::LoadItem()
 		return false;
 	}
 
-	// Overlap-запрос: все артефакты в триггере
-	TArray<AActor*> Overlapping;
-	InventoryTrig->GetOverlappingActors(Overlapping, AArtifactBase::StaticClass());
+	FVector Center = InventoryTrig->GetComponentLocation();
+	TArray<AActor*> AllArtifacts;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AArtifactBase::StaticClass(), AllArtifacts);
 
-	// Исключить уже загруженные
-	Overlapping.RemoveAll([this](AActor* Actor)
+	TArray<AArtifactBase*> ValidArtifacts;
+	for (AActor* Actor : AllArtifacts)
 	{
-		for (const FCabinSlot& Slot : Slots)
+		AArtifactBase* Artifact = Cast<AArtifactBase>(Actor);
+		// Игнорируем спрятанные артефакты (они уже в инвентаре/не на сцене)
+		if (!Artifact || Artifact->IsHidden()) continue;
+
+		float Dist = FVector::Dist(Artifact->GetActorLocation(), Center);
+		// Радиус захвата: 2.5 метра от центра приемника
+		if (Dist < 250.0f) 
 		{
-			if (Slot.bOccupied && Slot.Artifact == Actor) return true;
+			ValidArtifacts.Add(Artifact);
 		}
-		return false;
-	});
+	}
 
-	if (Overlapping.IsEmpty())
+	if (ValidArtifacts.IsEmpty())
 	{
-		UE_LOG(LogTemp, Log, TEXT("CabinInventory: No free artifacts in trigger."));
+		UE_LOG(LogTemp, Log, TEXT("CabinInventory: No free artifacts near trigger."));
 		return false;
 	}
 
-	// Ближайший к центру триггера — загружаем только 1
-	FVector Center = InventoryTrig->GetComponentLocation();
-	Overlapping.Sort([&Center](const AActor& A, const AActor& B)
+	// Сортируем: самый близкий к приемнику предмет
+	ValidArtifacts.Sort([&Center](const AArtifactBase& A, const AArtifactBase& B)
 	{
 		return FVector::DistSquared(A.GetActorLocation(), Center)
 			 < FVector::DistSquared(B.GetActorLocation(), Center);
 	});
 
-	AArtifactBase* Artifact = Cast<AArtifactBase>(Overlapping[0]);
+	AArtifactBase* Artifact = ValidArtifacts[0];
 	if (!Artifact) return false;
 
 	StoreArtifact(FreeSlot, Artifact);

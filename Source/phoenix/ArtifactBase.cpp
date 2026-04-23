@@ -18,6 +18,7 @@ AArtifactBase::AArtifactBase()
 	MeshComponent->SetCollisionResponseToAllChannels(ECR_Block);
 	MeshComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
 	MeshComponent->SetNotifyRigidBodyCollision(true); // Для OnHit
+	MeshComponent->SetGenerateOverlapEvents(true);    // Для DeliveryPoint триггера
 
 	// Привязка события столкновения
 	MeshComponent->OnComponentHit.AddDynamic(this, &AArtifactBase::OnHit);
@@ -26,6 +27,22 @@ AArtifactBase::AArtifactBase()
 void AArtifactBase::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// Если ItemID не задан в Blueprint — автоматически берём из ItemName
+	if (ItemID.IsNone() || ItemID == NAME_None)
+	{
+		ItemID = ItemName;
+		UE_LOG(LogTemp, Log, TEXT("Artifact '%s': ItemID was empty, auto-set to '%s'"),
+			*ItemName.ToString(), *ItemID.ToString());
+	}
+
+	// Валидация
+	if (ItemID.IsNone())
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("Artifact '%s': ItemID is EMPTY! Set it in Class Defaults to match DT_Orders."),
+			*GetName());
+	}
 }
 
 FText AArtifactBase::GetInteractHintText() const

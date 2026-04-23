@@ -80,9 +80,9 @@ void UStaminaWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 
 	PrevStaminaPercent = StaminaPct;
 
-	// 3. СОЧНЫЙ ЦВЕТ: плавный HSV переход бирюзовый -> красный
+	// 3. СОЧНЫЙ ЦВЕТ: плавный HSV переход (Полусерый -> Красный)
 	float ColorLerpAlpha = FMath::Clamp((0.35f - StaminaPct) / 0.25f, 0.0f, 1.0f);
-	FLinearColor SafeColor(0.0f, 0.8f, 0.7f); // Бирюзовый
+	FLinearColor SafeColor(0.6f, 0.6f, 0.6f); // Полусерый
 	FLinearColor PanicColor(1.0f, 0.0f, 0.0f); // Красный
 	FLinearColor TargetColor = FLinearColor::LerpUsingHSV(SafeColor, PanicColor, ColorLerpAlpha);
 

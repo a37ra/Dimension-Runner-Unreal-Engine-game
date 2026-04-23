@@ -4,6 +4,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "Components/TimelineComponent.h"
+#include "DimensionRunnerTypes.h"
 #include "TravelCabin.generated.h"
 
 class UStaticMeshComponent;
@@ -19,6 +20,7 @@ class UPointLightComponent;
 class UCabinInventoryComponent;
 class UCabinSlotWidget;
 class UBoxComponent;
+class UGI_DimensionRunner;
 
 /**
  * Состояние кабины
@@ -237,13 +239,8 @@ protected:
 	// Смена состояния
 	void SetCabinState(ECabinState NewState);
 
-	// GI_Phoenix (через Reflection)
-	UObject* GetGIPhoenix() const;
-	bool GI_CheckCabinStatus();
-	bool GI_CheckOverheatStatus();
-	void GI_SetCabinStatus(bool bActive);
-	void GI_SetOverheatStatus(bool bOverheated);
-	void SavePlayerInventoryToGI();
+	// GameInstance — прямой доступ (без Reflection)
+	UGI_DimensionRunner* GetDimensionRunnerGI() const;
 
 	// Телепорт
 	void PerformTeleport();
@@ -251,6 +248,11 @@ protected:
 	// Инвентарь кабины
 	bool TryHandleButtonInteract(AActor* Interactor);
 	bool IsLookingAtMainButton(AActor* Interactor) const;
+	
+	/** Проверяет, смотрит ли игрок на ЛЮБУЮ интерактивную кнопку кабины */
+	UFUNCTION(BlueprintPure, Category = "Cabin")
+	bool IsLookingAtAnyInteractable(AActor* Interactor) const;
+
 	void UpdateSlotScreen();
 	UCabinSlotWidget* GetSlotWidget() const;
 	void SaveCabinToStorage();

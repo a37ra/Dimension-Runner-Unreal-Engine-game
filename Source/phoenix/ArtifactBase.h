@@ -21,8 +21,13 @@ public:
 
 	// ==================== ИДЕНТИФИКАЦИЯ ====================
 
-	/** ID предмета — для проверки приёмниками (например, "Scrap", "Fuse") */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Artifact|Data")
+	/**
+	 * ID предмета — ключ связи с DT_Orders и DT_Items.
+	 * Должен совпадать с FOrderData::ItemID и RowName в DT_Items.
+	 * Примеры: "Scrap", "Fuse", "Crystal"
+	 * Если оставить пустым — автоматически возьмётся из ItemName.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Artifact", meta = (DisplayPriority = 1))
 	FName ItemID;
 
 	// ==================== ДАННЫЕ АРТЕФАКТА (Настраиваются вручную) ====================
@@ -60,6 +65,9 @@ public:
 	float MaxItemHP = 100.0f;
 
 	// ==================== ГЕТТЕРЫ ====================
+
+	UFUNCTION(BlueprintPure, Category = "Artifact")
+	FName GetItemID() const { return ItemID; }
 
 	UFUNCTION(BlueprintPure, Category = "Artifact")
 	FName GetItemName() const { return ItemName; }

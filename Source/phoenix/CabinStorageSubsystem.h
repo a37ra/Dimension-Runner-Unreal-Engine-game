@@ -17,6 +17,12 @@ struct FSavedCabinSlot
 	TSubclassOf<AActor> ArtifactClass;
 
 	UPROPERTY()
+	FName ItemID;
+
+	UPROPERTY()
+	FName ItemName;
+
+	UPROPERTY()
 	float ItemHP = 100.0f;
 
 	UPROPERTY()

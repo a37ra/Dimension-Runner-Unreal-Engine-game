@@ -190,6 +190,7 @@ public:
 	bool IsLookingAtAnyInteractable(AActor* Interactor) const;
 
 	// Interact entry point
+	UFUNCTION(BlueprintCallable, Category = "Cabin")
 	void OnInteract(AActor* Interactor);
 
 	// Inventory

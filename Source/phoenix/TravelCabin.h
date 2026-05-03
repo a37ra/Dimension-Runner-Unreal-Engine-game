@@ -158,16 +158,9 @@ public:
 	// Runtime State
 	// ============================================================
 
-	UPROPERTY(BlueprintReadOnly, Category = "Cabin|State")
 	ECabinState CabinState = ECabinState::Ready;
-
-	UPROPERTY(BlueprintReadOnly, Category = "Cabin|State")
 	int32 CurrentTime = 0;
-
-	UPROPERTY(BlueprintReadOnly, Category = "Cabin|State")
 	bool bIsPlayerInside = false;
-
-	UPROPERTY(BlueprintReadOnly, Category = "Cabin|State")
 	bool bIsActivated = false;
 
 	// ============================================================
@@ -276,56 +269,26 @@ private:
 	// Cached Blueprint Components
 	// ============================================================
 
-	UPROPERTY()
 	UStaticMeshComponent* DoorL = nullptr;
-
-	UPROPERTY()
 	UStaticMeshComponent* DoorR = nullptr;
-
-	UPROPERTY()
 	UStaticMeshComponent* CachedButton = nullptr;
-
-	UPROPERTY()
 	UPrimitiveComponent* CachedTrigger = nullptr;
-
-	UPROPERTY()
 	UPrimitiveComponent* CachedBlocker = nullptr;
-
-	UPROPERTY()
 	UPrimitiveComponent* CachedInventoryTrig = nullptr;
-
-	UPROPERTY()
 	UPrimitiveComponent* CachedButtonLoad = nullptr;
-
-	UPROPERTY()
 	UPrimitiveComponent* CachedButtonSelect = nullptr;
-
-	UPROPERTY()
 	UPrimitiveComponent* CachedButtonUnload = nullptr;
-
-	UPROPERTY()
 	UWidgetComponent* CachedScreen = nullptr;
-
-	UPROPERTY()
 	UWidgetComponent* CachedSlotScreen = nullptr;
-
-	UPROPERTY()
 	UPostProcessComponent* CachedSingularityPP = nullptr;
 
 	// ============================================================
 	// Runtime Data
 	// ============================================================
 
-	UPROPERTY()
 	UCabinInventoryComponent* CabinInventory = nullptr;
-
-	UPROPERTY()
 	UAudioComponent* DepartureSoundComp = nullptr;
-
-	UPROPERTY()
 	UMaterialInstanceDynamic* SingularityDMI = nullptr;
-
-	UPROPERTY()
 	UPointLightComponent* FlashLight = nullptr;
 
 	FTimeline DoorTimeline;

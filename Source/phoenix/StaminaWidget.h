@@ -30,6 +30,12 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Stamina|Opacity")
 	float IdleDelaySeconds = 1.5f;
 
+	UPROPERTY(EditDefaultsOnly, Category = "Stamina|Shape")
+	float CornerRadius = 10.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Stamina|Color")
+	FLinearColor BackgroundColor = FLinearColor(0.02f, 0.02f, 0.04f, 0.4f);
+
 	// ================= Виджеты (привязка в Blueprint) =================
 
 	UPROPERTY(meta = (BindWidget))

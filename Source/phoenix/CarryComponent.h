@@ -12,6 +12,7 @@ class UNiagaraSystem;
 class AArtifactBase;
 class USprintStaminaComponent;
 class UCameraBobComponent;
+class USoundBase;
 
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
 class PHOENIX_API UCarryComponent : public UActorComponent
@@ -83,6 +84,20 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Carry|FX")
 	TObjectPtr<UNiagaraSystem> BeamEndParticles;
+
+	// ==================== ЗВУКИ ====================
+
+	/** Звук поднятия предмета */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Carry|Sounds")
+	class USoundBase* PickupSound;
+
+	/** Звук опускания предмета */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Carry|Sounds")
+	class USoundBase* PlaceSound;
+
+	/** Звук броска */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Carry|Sounds")
+	class USoundBase* ThrowSound;
 
 	// ==================== КОМАНДЫ ====================
 

@@ -129,6 +129,12 @@ void UGI_DimensionRunner::Tick(float DeltaTime)
 {
 	if (bIsDayActive && DayTimeRemaining > 0.0f)
 	{
+		// Пауза таймера в главном меню
+		if (GetWorld() && GetWorld()->GetMapName().Contains(TEXT("MainMenu")))
+		{
+			return;
+		}
+
 		DayTimeRemaining -= DeltaTime;
 
 		if (DayTimeRemaining <= 0.0f)

@@ -25,13 +25,19 @@ protected:
 	float IdleOpacity = 0.3f; // Слегка ярче стамины в простое
 
 	UPROPERTY(EditDefaultsOnly, Category = "Health|Opacity")
-	float ActiveOpacity = 1.0f; // Ярче стамины в бою
+	float ActiveOpacity = 0.85f; // Чуть прозрачнее, чтобы не мешало
 
 	UPROPERTY(EditDefaultsOnly, Category = "Health|Opacity")
 	float IdleDelaySeconds = 2.0f; // Через сколько секунд скрываться 
 
 	UPROPERTY(EditDefaultsOnly, Category = "Health|Color")
 	FLinearColor BaseColor = FColor::FromHex("8F0B13");
+
+	UPROPERTY(EditDefaultsOnly, Category = "Health|Color")
+	FLinearColor BackgroundColor = FLinearColor(0.02f, 0.02f, 0.04f, 0.55f);
+
+	UPROPERTY(EditDefaultsOnly, Category = "Health|Shape")
+	float CornerRadius = 10.0f;
 
 	// ================= Виджеты (привязка в Blueprint) =================
 

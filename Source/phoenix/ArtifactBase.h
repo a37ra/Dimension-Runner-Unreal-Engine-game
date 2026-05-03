@@ -64,6 +64,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Artifact")
 	float MaxItemHP = 100.0f;
 
+	/** Держит ли сейчас этот предмет игрок? */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Artifact")
+	bool bIsHeld = false;
+
 	// ==================== ГЕТТЕРЫ ====================
 
 	UFUNCTION(BlueprintPure, Category = "Artifact")

@@ -44,13 +44,15 @@ void USprintStaminaComponent::TickComponent(float DeltaTime, ELevelTick TickType
 	const bool bMovingEnough = HorizSpeed > 50.0f; // Должен реально идти
 	const bool bOnGround = MoveComp->IsMovingOnGround();
 
-	// Можно ли бежать?
-	bool bCanSprint = !bStaminaDepleted && CurrentStamina > 0.0f;
-	
-	// Если стамина кончилась, нужно подождать до порога MinStaminaToSprint
-	if (bStaminaDepleted)
+	// Пытаемся начать спринт (или продолжаем)
+	bool bCanSprint = false;
+	if (bIsSprinting)
 	{
-		if (CurrentStamina >= MinStaminaToSprint) bStaminaDepleted = false;
+		bCanSprint = CurrentStamina > 0.0f; // Можно бежать, пока не кончится
+	}
+	else
+	{
+		bCanSprint = CurrentStamina >= MinStaminaToSprint; // Для старта нужен порог
 	}
 
 	bIsSprinting = bShiftHeld && bMovingEnough && bOnGround && bCanSprint;

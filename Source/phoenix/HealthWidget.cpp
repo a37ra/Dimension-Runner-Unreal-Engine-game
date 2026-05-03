@@ -26,18 +26,37 @@ void UHealthWidget::NativeConstruct()
 	BounceVelocity = 0.0f;
 	TimeSinceFullHealth = 0.0f;
 
-	// Если установлен ProgressBar, берем его динамический материал (поможет для изогнутого материала)
+	// Настраиваем стиль ProgressBar: скруглённые углы + полупрозрачный фон
 	if (ProgressBar)
 	{
-		// Получаем стиль и кисть
 		FProgressBarStyle Style = ProgressBar->GetWidgetStyle();
-		FSlateBrush FillBrush = Style.FillImage;
+		const FVector4 Radii(CornerRadius, CornerRadius, CornerRadius, CornerRadius);
 
+		// === Фон полоски (тёмный, полупрозрачный, скруглённый) ===
+		FSlateBrush BgBrush;
+		BgBrush.DrawAs = ESlateBrushDrawType::RoundedBox;
+		BgBrush.TintColor = FSlateColor(BackgroundColor);
+		BgBrush.OutlineSettings.CornerRadii = Radii;
+		BgBrush.OutlineSettings.RoundingType = ESlateBrushRoundingType::FixedRadius;
+		Style.BackgroundImage = BgBrush;
+
+		// === Заполнение (красное, скруглённое) ===
+		FSlateBrush FillBrush;
+		FillBrush.DrawAs = ESlateBrushDrawType::RoundedBox;
+		FillBrush.TintColor = FSlateColor(FLinearColor::White); // Цвет задаётся через SetFillColorAndOpacity
+		FillBrush.OutlineSettings.CornerRadii = Radii;
+		FillBrush.OutlineSettings.RoundingType = ESlateBrushRoundingType::FixedRadius;
+		Style.FillImage = FillBrush;
+
+		ProgressBar->SetWidgetStyle(Style);
+		ProgressBar->SetFillColorAndOpacity(BaseColor);
+
+		// Если назначен кастомный материал — создаём динамический
+		FillBrush = Style.FillImage;
 		UMaterialInterface* Mat = FillBrush.GetResourceObject() ? Cast<UMaterialInterface>(FillBrush.GetResourceObject()) : nullptr;
 		if (Mat)
 		{
 			DynamicMaterial = UMaterialInstanceDynamic::Create(Mat, this);
-			// Перезаписываем кисть
 			FillBrush.SetResourceObject(DynamicMaterial);
 			Style.FillImage = FillBrush;
 			ProgressBar->SetWidgetStyle(Style);
@@ -54,6 +73,11 @@ void UHealthWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 		if (APawn* Pawn = UGameplayStatics::GetPlayerPawn(this, 0))
 		{
 			HealthComp = Pawn->FindComponentByClass<UHealthComponent>();
+		}
+		
+		if (!HealthComp.IsValid() && GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 0.0f, FColor::Red, TEXT("HealthWidget: HealthComponent NOT FOUND on Player!"));
 		}
 		return;
 	}

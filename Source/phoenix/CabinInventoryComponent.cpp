@@ -49,21 +49,16 @@ bool UCabinInventoryComponent::LoadItem()
 
 	FVector Center = InventoryTrig->GetComponentLocation();
 	TArray<AActor*> AllArtifacts;
-	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AArtifactBase::StaticClass(), AllArtifacts);
+	InventoryTrig->GetOverlappingActors(AllArtifacts, AArtifactBase::StaticClass());
 
 	TArray<AArtifactBase*> ValidArtifacts;
 	for (AActor* Actor : AllArtifacts)
 	{
 		AArtifactBase* Artifact = Cast<AArtifactBase>(Actor);
-		// Игнорируем спрятанные артефакты (они уже в инвентаре/не на сцене)
-		if (!Artifact || Artifact->IsHidden()) continue;
+		// Игнорируем спрятанные артефакты и те, которые игрок сейчас держит
+		if (!Artifact || Artifact->IsHidden() || Artifact->bIsHeld) continue;
 
-		float Dist = FVector::Dist(Artifact->GetActorLocation(), Center);
-		// Радиус захвата: 2.5 метра от центра приемника
-		if (Dist < 250.0f) 
-		{
-			ValidArtifacts.Add(Artifact);
-		}
+		ValidArtifacts.Add(Artifact);
 	}
 
 	if (ValidArtifacts.IsEmpty())

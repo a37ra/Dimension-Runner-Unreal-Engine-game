@@ -34,11 +34,17 @@ void UHotbarComponent::SetupInputBindings()
 	APawn* OwnerPawn = Cast<APawn>(GetOwner());
 	if (!OwnerPawn) return;
 
-	APlayerController* PC = Cast<APlayerController>(OwnerPawn->GetController());
-	if (!PC) return;
-
 	UInputComponent* InputComp = OwnerPawn->InputComponent;
-	if (!InputComp) return;
+	if (!InputComp)
+	{
+		// InputComponent еще не готов (обычное дело в BeginPlay). Ждем следующий кадр.
+		GetWorld()->GetTimerManager().SetTimerForNextTick(this, &UHotbarComponent::SetupInputBindings);
+		return;
+	}
+
+	// Защита от двойного биндинга, если функция вызовется дважды
+	InputComp->RemoveActionBinding(TEXT("One"), IE_Pressed);
+	InputComp->RemoveActionBinding(TEXT("Two"), IE_Pressed);
 
 	// Привязка клавиш 1, 2
 	InputComp->BindKey(EKeys::One, IE_Pressed, this, &UHotbarComponent::OnHotbar1Pressed);

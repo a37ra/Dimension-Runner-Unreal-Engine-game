@@ -23,6 +23,31 @@ void UStaminaWidget::NativeConstruct()
 	DisplayPercent = 1.0f;
 	PrevStaminaPercent = 1.0f;
 	BounceVelocity = 0.0f;
+
+	// Настраиваем стиль: скруглённые углы + полупрозрачный фон
+	if (ProgressBar)
+	{
+		FProgressBarStyle Style = ProgressBar->GetWidgetStyle();
+		const FVector4 Radii(CornerRadius, CornerRadius, CornerRadius, CornerRadius);
+
+		// Фон
+		FSlateBrush BgBrush;
+		BgBrush.DrawAs = ESlateBrushDrawType::RoundedBox;
+		BgBrush.TintColor = FSlateColor(BackgroundColor);
+		BgBrush.OutlineSettings.CornerRadii = Radii;
+		BgBrush.OutlineSettings.RoundingType = ESlateBrushRoundingType::FixedRadius;
+		Style.BackgroundImage = BgBrush;
+
+		// Заполнение
+		FSlateBrush FillBrush;
+		FillBrush.DrawAs = ESlateBrushDrawType::RoundedBox;
+		FillBrush.TintColor = FSlateColor(FLinearColor::White);
+		FillBrush.OutlineSettings.CornerRadii = Radii;
+		FillBrush.OutlineSettings.RoundingType = ESlateBrushRoundingType::FixedRadius;
+		Style.FillImage = FillBrush;
+
+		ProgressBar->SetWidgetStyle(Style);
+	}
 }
 
 void UStaminaWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)

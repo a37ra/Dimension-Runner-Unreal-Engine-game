@@ -19,7 +19,9 @@
 #include "TimerManager.h"
 #include "Curves/CurveFloat.h"
 #include "Sound/SoundBase.h"
+#include "Components/AudioComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Camera/CameraComponent.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogCabin, Log, All);
 
@@ -75,7 +77,14 @@ void ATravelCabin::BeginPlay()
 		CurrentTime = ExpeditionTime;
 		EnableButton(); // кнопка не нужна, но пусть будет
 
-		// Пауза, потом двери открываются и таймер стартует
+		// Прибытие на миссию: стопаем звук отправки, запускаем звук прибытия (10сек)
+		if (DepartureSoundComp) { DepartureSoundComp->Stop(); DepartureSoundComp = nullptr; }
+		if (ArrivalSound)
+			UGameplayStatics::PlaySoundAtLocation(this, ArrivalSound, GetActorLocation());
+		StartShake(EShakeMode::Arriving);
+
+		// Двери открываются на 4-й секунде звука прибытия
+		const float ArrivalDoorDelay = 4.0f;
 		FTimerHandle DelayHandle;
 		GetWorldTimerManager().SetTimer(DelayHandle, [this]()
 		{
@@ -83,7 +92,7 @@ void ATravelCabin::BeginPlay()
 			UpdateScreenText(CurrentTime);
 			SetTimerTextColor(FLinearColor::White);
 			StartCabinTimer();
-		}, DoorOpenDelay, false);
+		}, ArrivalDoorDelay, false);
 	}
 	else if (bOverheated)
 	{
@@ -94,7 +103,13 @@ void ATravelCabin::BeginPlay()
 		CurrentTime = CooldownTime;
 		DisableButton(); // кнопка отключена!
 
-		// Двери открываются (выпускаем игрока), таймер перезагрузки
+		// Прибытие домой (перегрев): звук + тряска
+		if (DepartureSoundComp) { DepartureSoundComp->Stop(); DepartureSoundComp = nullptr; }
+		if (ArrivalSound)
+			UGameplayStatics::PlaySoundAtLocation(this, ArrivalSound, GetActorLocation());
+		StartShake(EShakeMode::Arriving);
+
+		const float ArrivalDoorDelay = 4.0f;
 		FTimerHandle DelayHandle;
 		GetWorldTimerManager().SetTimer(DelayHandle, [this]()
 		{
@@ -102,7 +117,7 @@ void ATravelCabin::BeginPlay()
 			UpdateScreenText(CurrentTime);
 			SetTimerTextColor(FLinearColor(1.0f, 0.7f, 0.0f, 1.0f)); // Жёлтый
 			StartCabinTimer();
-		}, DoorOpenDelay, false);
+		}, ArrivalDoorDelay, false);
 	}
 	else
 	{
@@ -154,6 +169,8 @@ void ATravelCabin::Tick(float DeltaTime)
 	DoorTimeline.TickTimeline(DeltaTime);
 	if (bSingularityActive)
 		TickSingularity(DeltaTime);
+	if (CurrentShakeMode != EShakeMode::None)
+		TickShake(DeltaTime);
 }
 
 // ============================================================
@@ -406,9 +423,31 @@ void ATravelCabin::OnDoorTimelineFinished()
 	switch (Action)
 	{
 	case EPendingAction::TeleportOut:
+		{
+			// Отправка: звук отправки + тряска по нарастающей
+			if (DepartureSound)
+			{
+				DepartureSoundComp = UGameplayStatics::SpawnSoundAtLocation(
+					this, DepartureSound, GetActorLocation());
+			}
+			StartShake(EShakeMode::Departing);
+
+			FTimerHandle TeleportHandle;
+			GetWorldTimerManager().SetTimer(TeleportHandle, this,
+				&ATravelCabin::PerformTeleport, TeleportDelay, false);
+		}
+		break;
+
 	case EPendingAction::TeleportHome:
 		{
-			// Пауза → телепорт
+			// Возврат: звук + тряска
+			if (DepartureSound)
+			{
+				DepartureSoundComp = UGameplayStatics::SpawnSoundAtLocation(
+					this, DepartureSound, GetActorLocation());
+			}
+			StartShake(EShakeMode::Departing);
+
 			FTimerHandle TeleportHandle;
 			GetWorldTimerManager().SetTimer(TeleportHandle, this,
 				&ATravelCabin::PerformTeleport, TeleportDelay, false);
@@ -456,6 +495,11 @@ void ATravelCabin::OpenDoors()
 	UE_LOG(LogCabin, Log, TEXT("Cabin: Opening doors."));
 	if (CachedBlocker) CachedBlocker->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	DoorTimeline.Play(); // 0→1
+
+	// Звук и тряска открытия
+	if (DoorOpenSound)
+		UGameplayStatics::PlaySoundAtLocation(this, DoorOpenSound, GetActorLocation());
+	StartShake(EShakeMode::DoorBump);
 }
 
 void ATravelCabin::CloseDoors()
@@ -463,6 +507,10 @@ void ATravelCabin::CloseDoors()
 	UE_LOG(LogCabin, Log, TEXT("Cabin: Closing doors."));
 	if (CachedBlocker) CachedBlocker->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	DoorTimeline.Reverse(); // 1→0
+
+	// Звук закрытия
+	if (DoorCloseSound)
+		UGameplayStatics::PlaySoundAtLocation(this, DoorCloseSound, GetActorLocation());
 }
 
 // ============================================================
@@ -832,47 +880,36 @@ bool ATravelCabin::TryHandleButtonInteract(AActor* Interactor)
 	APlayerController* PC = Cast<APlayerController>(Char->GetController());
 	if (!PC) return false;
 
-	// Повторный трейс (геометрический)
+	// LineTrace — первый попавшийся объект должен быть кнопкой
 	FVector CamLoc;
 	FRotator CamRot;
 	PC->GetPlayerViewPoint(CamLoc, CamRot);
 
-	FVector TraceEnd = CamLoc + CamRot.Vector() * 300.0f;
-	UPrimitiveComponent* BestButton = nullptr;
-	float BestDist = 15.0f; // Прицеливание: прощает промах до 15 см от центра луча (уточнили для точности)
+	FCollisionQueryParams Params;
+	Params.AddIgnoredActor(Interactor);
 
-	UPrimitiveComponent* Buttons[] = { CachedButtonLoad, CachedButtonSelect, CachedButtonUnload };
-
-	for (UPrimitiveComponent* Btn : Buttons)
+	FHitResult Hit;
+	if (!GetWorld()->LineTraceSingleByChannel(Hit, CamLoc, CamLoc + CamRot.Vector() * 300.0f,
+		ECC_Visibility, Params))
 	{
-		if (!Btn) continue;
-		FVector BtnLoc = Btn->GetComponentLocation();
-		
-		if (FVector::Dist(CamLoc, BtnLoc) > 350.0f) continue;
-		
-		FVector PointOnLine = FMath::ClosestPointOnSegment(BtnLoc, CamLoc, TraceEnd);
-		float DistFromLine = FVector::Dist(PointOnLine, BtnLoc);
-
-		if (DistFromLine < BestDist)
-		{
-			BestDist = DistFromLine;
-			BestButton = Btn;
-		}
+		return false;
 	}
 
-	if (BestButton == CachedButtonLoad)
+	UPrimitiveComponent* HitComp = Hit.GetComponent();
+
+	if (HitComp == CachedButtonLoad)
 	{
 		CabinInventory->LoadItem();
 		UE_LOG(LogCabin, Log, TEXT("Cabin: Button LOAD pressed."));
 		return true;
 	}
-	if (BestButton == CachedButtonSelect)
+	if (HitComp == CachedButtonSelect)
 	{
 		CabinInventory->SelectNextSlot();
 		UE_LOG(LogCabin, Log, TEXT("Cabin: Button SELECT pressed."));
 		return true;
 	}
-	if (BestButton == CachedButtonUnload)
+	if (HitComp == CachedButtonUnload)
 	{
 		CabinInventory->UnloadItem();
 		UE_LOG(LogCabin, Log, TEXT("Cabin: Button UNLOAD pressed."));
@@ -896,22 +933,15 @@ bool ATravelCabin::IsLookingAtMainButton(AActor* Interactor) const
 	FRotator CamRot;
 	PC->GetPlayerViewPoint(CamLoc, CamRot);
 
+	// Прямой LineTrace — проверяем, что ПЕРВЫЙ объект на луче = кнопка
 	FCollisionQueryParams Params;
 	Params.AddIgnoredActor(Interactor);
 
-	TArray<FHitResult> Hits;
-	FCollisionShape Sphere = FCollisionShape::MakeSphere(15.0f);
-
-	if (GetWorld()->SweepMultiByChannel(Hits, CamLoc, CamLoc + CamRot.Vector() * 300.0f,
-		FQuat::Identity, ECC_Visibility, Sphere, Params))
+	FHitResult Hit;
+	if (GetWorld()->LineTraceSingleByChannel(Hit, CamLoc, CamLoc + CamRot.Vector() * 300.0f,
+		ECC_Visibility, Params))
 	{
-		for (const FHitResult& HitResult : Hits)
-		{
-			if (HitResult.GetComponent() == CachedButton)
-			{
-				return true;
-			}
-		}
+		return (Hit.GetComponent() == CachedButton);
 	}
 
 	return false;
@@ -934,22 +964,16 @@ bool ATravelCabin::IsLookingAtAnyInteractable(AActor* Interactor) const
 	FRotator CamRot;
 	PC->GetPlayerViewPoint(CamLoc, CamRot);
 
-	FVector TraceEnd = CamLoc + CamRot.Vector() * 300.0f;
-	float BestDist = 15.0f; // Прицеливание: прощает промах до 15 см от центра луча
+	// LineTrace — проверяем, что ПЕРВЫЙ объект = одна из кнопок инвентаря
+	FCollisionQueryParams Params;
+	Params.AddIgnoredActor(Interactor);
 
-	UPrimitiveComponent* Buttons[] = { CachedButtonLoad, CachedButtonSelect, CachedButtonUnload };
-
-	for (UPrimitiveComponent* Btn : Buttons)
+	FHitResult Hit;
+	if (GetWorld()->LineTraceSingleByChannel(Hit, CamLoc, CamLoc + CamRot.Vector() * 300.0f,
+		ECC_Visibility, Params))
 	{
-		if (!Btn) continue;
-		FVector BtnLoc = Btn->GetComponentLocation();
-		
-		if (FVector::Dist(CamLoc, BtnLoc) > 350.0f) continue;
-		
-		FVector PointOnLine = FMath::ClosestPointOnSegment(BtnLoc, CamLoc, TraceEnd);
-		float DistFromLine = FVector::Dist(PointOnLine, BtnLoc);
-
-		if (DistFromLine < BestDist)
+		UPrimitiveComponent* HitComp = Hit.GetComponent();
+		if (HitComp == CachedButtonLoad || HitComp == CachedButtonSelect || HitComp == CachedButtonUnload)
 		{
 			return true;
 		}
@@ -1067,4 +1091,92 @@ void ATravelCabin::RestoreCabinFromStorage()
 		UE_LOG(LogCabin, Log, TEXT("Cabin: Restored %d artifacts from storage."), RestoredCount);
 		CabinInventory->OnInventoryChanged.Broadcast();
 	}
+}
+
+// ============================================================
+// ТРЯСКА КАМЕРЫ
+// ============================================================
+
+void ATravelCabin::StartShake(EShakeMode Mode)
+{
+	CurrentShakeMode = Mode;
+	ShakeElapsed = 0.0f;
+	ShakeCurrentIntensity = (Mode == EShakeMode::Arriving) ? DepartureShakeMax : 0.0f;
+	
+	// Сброс предыдущего смещения
+	LastShakeOffset = FVector::ZeroVector;
+	LastShakeRoll = 0.0f;
+}
+
+void ATravelCabin::TickShake(float DeltaTime)
+{
+	ShakeElapsed += DeltaTime;
+
+	switch (CurrentShakeMode)
+	{
+	case EShakeMode::Departing:
+		{
+			const float Alpha = FMath::Clamp(ShakeElapsed / FMath::Max(DepartureShakeRampUp, 0.1f), 0.0f, 1.0f);
+			ShakeCurrentIntensity = FMath::InterpEaseIn(0.0f, DepartureShakeMax, Alpha, 2.0f);
+		}
+		break;
+
+	case EShakeMode::Arriving:
+		{
+			const float Alpha = FMath::Clamp(ShakeElapsed / FMath::Max(ArrivalShakeRampDown, 0.1f), 0.0f, 1.0f);
+			ShakeCurrentIntensity = FMath::Lerp(DepartureShakeMax, 0.0f, Alpha);
+			if (Alpha >= 1.0f) CurrentShakeMode = EShakeMode::None;
+		}
+		break;
+
+	case EShakeMode::DoorBump:
+		{
+			const float Alpha = FMath::Clamp(ShakeElapsed / FMath::Max(DoorShakeDuration, 0.1f), 0.0f, 1.0f);
+			ShakeCurrentIntensity = FMath::Lerp(DoorShakeIntensity, 0.0f, Alpha);
+			if (Alpha >= 1.0f) CurrentShakeMode = EShakeMode::None;
+		}
+		break;
+
+	default:
+		CurrentShakeMode = EShakeMode::None;
+		break;
+	}
+
+	ApplyShakeToCamera(ShakeCurrentIntensity);
+}
+
+void ATravelCabin::ApplyShakeToCamera(float Intensity)
+{
+	ACharacter* PlayerChar = UGameplayStatics::GetPlayerCharacter(this, 0);
+	if (!PlayerChar) return;
+
+	UCameraComponent* CamComp = PlayerChar->FindComponentByClass<UCameraComponent>();
+	if (!CamComp) return;
+
+	// 1. Сначала УДАЛЯЕМ смещение предыдущего кадра, чтобы вернуться в исходную точку
+	CamComp->AddLocalOffset(-LastShakeOffset);
+	FRotator CurrentRot = CamComp->GetRelativeRotation();
+	CurrentRot.Roll -= LastShakeRoll;
+	CamComp->SetRelativeRotation(CurrentRot);
+
+	// Если интенсивность упала в ноль — просто выходим (мы уже вернулись в ноль)
+	if (Intensity <= 0.01f)
+	{
+		LastShakeOffset = FVector::ZeroVector;
+		LastShakeRoll = 0.0f;
+		return;
+	}
+
+	// 2. Генерируем НОВОЕ случайное смещение
+	const float ShakeX = FMath::RandRange(-Intensity, Intensity) * 0.3f;
+	const float ShakeY = FMath::RandRange(-Intensity, Intensity) * 0.3f;
+	const float ShakeZ = FMath::RandRange(-Intensity, Intensity) * 0.5f;
+	LastShakeOffset = FVector(ShakeX, ShakeY, ShakeZ);
+	LastShakeRoll = FMath::RandRange(-Intensity * 0.15f, Intensity * 0.15f);
+
+	// 3. ПРИМЕНЯЕМ новое смещение
+	CamComp->AddLocalOffset(LastShakeOffset);
+	CurrentRot = CamComp->GetRelativeRotation();
+	CurrentRot.Roll += LastShakeRoll;
+	CamComp->SetRelativeRotation(CurrentRot);
 }

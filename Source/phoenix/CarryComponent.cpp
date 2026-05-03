@@ -11,6 +11,7 @@
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
+#include "Sound/SoundBase.h"
 
 UCarryComponent::UCarryComponent()
 {
@@ -160,11 +161,16 @@ bool UCarryComponent::TryGrab()
 	);
 
 	CarriedArtifact = LookedAtArtifact;
+	CarriedArtifact->bIsHeld = true;
 	CurrentHoldDistance = DefaultHoldDistance;
 
 	ApplyWeightPenalty();
 	ShowBeam();
 	CarriedArtifact->OnPickedUp();
+
+	// Звук поднятия
+	if (PickupSound)
+		UGameplayStatics::PlaySoundAtLocation(this, PickupSound, CarriedArtifact->GetActorLocation());
 
 	return true;
 }
@@ -177,6 +183,11 @@ void UCarryComponent::Release()
 	RemoveWeightPenalty();
 	HideBeam();
 
+	// Звук опускания
+	if (PlaceSound)
+		UGameplayStatics::PlaySoundAtLocation(this, PlaceSound, CarriedArtifact->GetActorLocation());
+
+	CarriedArtifact->bIsHeld = false;
 	CarriedArtifact = nullptr;
 }
 
@@ -197,6 +208,10 @@ void UCarryComponent::Throw()
 	}
 
 	Artifact->OnThrown();
+
+	// Звук броска
+	if (ThrowSound)
+		UGameplayStatics::PlaySoundAtLocation(this, ThrowSound, Artifact->GetActorLocation());
 }
 
 void UCarryComponent::PlaceGently()
@@ -211,6 +226,8 @@ void UCarryComponent::PlaceGently()
 void UCarryComponent::AdjustDistance(float Delta)
 {
 	if (!IsCarrying()) return;
+
+	if (FMath::IsNearlyZero(Delta)) return;
 
 	// Чем тяжелее — тем медленнее колёсико
 	const float ScrollMult = CalcWeightFactor(

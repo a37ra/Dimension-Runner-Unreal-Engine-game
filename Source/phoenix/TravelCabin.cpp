@@ -280,6 +280,24 @@ void ATravelCabin::OnInteract(AActor* Interactor)
 }
 
 // ============================================================
+// StartExpedition / StartReturn — Blueprint-callable wrappers
+// ============================================================
+
+void ATravelCabin::StartExpedition()
+{
+	ACharacter* PlayerChar = UGameplayStatics::GetPlayerCharacter(this, 0);
+	if (PlayerChar)
+		OnInteract(PlayerChar);
+}
+
+void ATravelCabin::StartReturn()
+{
+	ACharacter* PlayerChar = UGameplayStatics::GetPlayerCharacter(this, 0);
+	if (PlayerChar)
+		OnInteract(PlayerChar);
+}
+
+// ============================================================
 // TIMER TICK — каждая секунда
 // ============================================================
 

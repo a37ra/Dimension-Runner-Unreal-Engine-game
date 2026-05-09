@@ -13,6 +13,7 @@ class AArtifactBase;
 class USprintStaminaComponent;
 class UCameraBobComponent;
 class USoundBase;
+class UHotbarComponent;
 
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
 class PHOENIX_API UCarryComponent : public UActorComponent
@@ -190,6 +191,9 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UCameraBobComponent> CameraBobComp;
+
+	UPROPERTY()
+	TObjectPtr<UHotbarComponent> HotbarComp;
 
 	// Кэш камеры
 	UPROPERTY()

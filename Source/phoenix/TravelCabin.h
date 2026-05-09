@@ -120,16 +120,16 @@ public:
 	TObjectPtr<UCurveFloat> DoorAnimCurve;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cabin|Doors")
-	FVector DoorLOpenPos = FVector(0.f, -150.f, 0.f);
+	FVector DoorLClosedPos = FVector(-75.0f, 150.0f, 130.0f);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cabin|Doors")
-	FVector DoorROpenPos = FVector(0.f, 150.f, 0.f);
+	FVector DoorLOpenPos = FVector(-225.0f, 150.0f, 130.0f);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cabin|Doors")
-	FVector DoorLClosedPos = FVector::ZeroVector;
+	FVector DoorRClosedPos = FVector(76.0f, 150.0f, 130.0f);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cabin|Doors")
-	FVector DoorRClosedPos = FVector::ZeroVector;
+	FVector DoorROpenPos = FVector(224.0f, 150.0f, 130.0f);
 
 	// --- Singularity ---
 

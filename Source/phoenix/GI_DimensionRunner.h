@@ -196,6 +196,9 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Orders")
 	bool bOrderActive = false;
 
+	/** Найти строку в DT_Items по ItemID. Возвращает nullptr, если таблица не настроена или строки нет. */
+	const FItemData* FindItemData(FName ItemID) const;
+
 	/** Сгенерировать случайный заказ из OrdersTable. Учитывает штрафной день */
 	UFUNCTION(BlueprintCallable, Category = "Orders")
 	void GenerateNextOrder();

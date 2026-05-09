@@ -40,6 +40,7 @@ void UHotbarWidget::NativeConstruct()
 void UHotbarWidget::OnSlotSelectedHandler(int32 SlotIndex)
 {
 	BP_HighlightSlot(SlotIndex);
+	RefreshUsePrompt();
 }
 
 void UHotbarWidget::OnSlotsChangedHandler()
@@ -49,6 +50,20 @@ void UHotbarWidget::OnSlotsChangedHandler()
 	for (int32 i = 0; i < HotbarComp->NumSlots; ++i)
 	{
 		FHotbarSlot CurrentHotbarSlot = HotbarComp->GetSlot(i);
-		BP_UpdateSlot(i, CurrentHotbarSlot.ItemID, CurrentHotbarSlot.Quantity);
+		BP_UpdateSlot(i, CurrentHotbarSlot.ItemID, CurrentHotbarSlot.Quantity, CurrentHotbarSlot.ItemIcon);
 	}
+
+	RefreshUsePrompt();
+}
+
+void UHotbarWidget::RefreshUsePrompt()
+{
+	if (!HotbarComp.IsValid())
+	{
+		BP_SetUsePrompt(false, FText::GetEmpty());
+		return;
+	}
+
+	const bool bShowPrompt = HotbarComp->HasUsableActiveItem();
+	BP_SetUsePrompt(bShowPrompt, HotbarComp->GetActiveUsePrompt());
 }

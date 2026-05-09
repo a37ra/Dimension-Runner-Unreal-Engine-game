@@ -2,6 +2,9 @@
 
 #include "CabinInventoryComponent.h"
 #include "ArtifactBase.h"
+#include "GI_DimensionRunner.h"
+#include "HotbarComponent.h"
+#include "GameFramework/Character.h"
 #include "Components/PrimitiveComponent.h"
 #include "Kismet/GameplayStatics.h"
 
@@ -63,8 +66,59 @@ bool UCabinInventoryComponent::LoadItem()
 
 	if (ValidArtifacts.IsEmpty())
 	{
-		UE_LOG(LogTemp, Log, TEXT("CabinInventory: No free artifacts near trigger."));
-		return false;
+		ACharacter* PlayerChar = UGameplayStatics::GetPlayerCharacter(this, 0);
+		UHotbarComponent* HotbarComp = PlayerChar ? PlayerChar->FindComponentByClass<UHotbarComponent>() : nullptr;
+		if (!HotbarComp)
+		{
+			UE_LOG(LogTemp, Log, TEXT("CabinInventory: No free artifacts near trigger."));
+			return false;
+		}
+
+		const int32 HotbarActiveIdx = HotbarComp->ActiveSlotIndex;
+		const FHotbarSlot ActiveSlot = HotbarComp->GetActiveSlot();
+		if (HotbarActiveIdx < 0 || ActiveSlot.IsEmpty())
+		{
+			UE_LOG(LogTemp, Log, TEXT("CabinInventory: No free artifacts near trigger and no active hotbar item."));
+			return false;
+		}
+
+		UGI_DimensionRunner* GI = Cast<UGI_DimensionRunner>(GetWorld() ? GetWorld()->GetGameInstance() : nullptr);
+		const FItemData* ItemData = GI ? GI->FindItemData(ActiveSlot.ItemID) : nullptr;
+		if (!ItemData || !ItemData->ArtifactClass)
+		{
+			UE_LOG(LogTemp, Log, TEXT("CabinInventory: Active hotbar item '%s' cannot be converted into a cabin artifact."), *ActiveSlot.ItemID.ToString());
+			return false;
+		}
+
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		AArtifactBase* SpawnedArtifact = GetWorld()->SpawnActor<AArtifactBase>(
+			ItemData->ArtifactClass,
+			GetOwner()->GetActorLocation() + FVector(0.f, 0.f, 50.f),
+			GetOwner()->GetActorRotation(),
+			SpawnParams);
+
+		if (!SpawnedArtifact)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("CabinInventory: Failed to spawn artifact from hotbar item '%s'."), *ActiveSlot.ItemID.ToString());
+			return false;
+		}
+
+		SpawnedArtifact->ItemID = ActiveSlot.ItemID;
+		if (!ItemData->ItemName.IsNone())
+		{
+			SpawnedArtifact->ItemName = ItemData->ItemName;
+		}
+		SpawnedArtifact->ItemIcon = ItemData->ItemIcon;
+
+		StoreArtifact(FreeSlot, SpawnedArtifact);
+		HotbarComp->ConsumeItemInSlot(HotbarActiveIdx, 1);
+
+		UE_LOG(LogTemp, Log, TEXT("CabinInventory: Loaded hotbar item '%s' → slot %d"),
+			*ActiveSlot.ItemID.ToString(), FreeSlot);
+
+		OnInventoryChanged.Broadcast();
+		return true;
 	}
 
 	// Сортируем: самый близкий к приемнику предмет

@@ -2,6 +2,7 @@
 
 #include "CarryComponent.h"
 #include "ArtifactBase.h"
+#include "HotbarComponent.h"
 #include "SprintStaminaComponent.h"
 #include "CameraBobComponent.h"
 #include "PhysicsEngine/PhysicsHandleComponent.h"
@@ -66,6 +67,7 @@ void UCarryComponent::BeginPlay()
 	{
 		StaminaComp = Character->FindComponentByClass<USprintStaminaComponent>();
 		CameraBobComp = Character->FindComponentByClass<UCameraBobComponent>();
+		HotbarComp = Character->FindComponentByClass<UHotbarComponent>();
 	}
 }
 
@@ -121,6 +123,12 @@ void UCarryComponent::UpdateLookTrace()
 
 void UCarryComponent::BeginGrab()
 {
+	if (!IsCarrying() && LookedAtArtifact && HotbarComp && HotbarComp->CanPickupArtifactToHotbar(LookedAtArtifact))
+	{
+		HotbarComp->TryPickupArtifact(LookedAtArtifact);
+		return;
+	}
+
 	if (IsCarrying() || !LookedAtArtifact || !PhysicsHandle) return;
 
 	if (GrabHoldTime > 0.0f)

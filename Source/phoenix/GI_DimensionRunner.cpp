@@ -202,6 +202,16 @@ void UGI_DimensionRunner::EndCurrentDay()
 // ЗАКАЗЫ
 // ============================================================
 
+const FItemData* UGI_DimensionRunner::FindItemData(FName ItemID) const
+{
+	if (!ItemsTable || ItemID.IsNone())
+	{
+		return nullptr;
+	}
+
+	return ItemsTable->FindRow<FItemData>(ItemID, TEXT("FindItemData"));
+}
+
 void UGI_DimensionRunner::GenerateNextOrder()
 {
 	if (!OrdersTable)

@@ -4,6 +4,9 @@
 #include "Engine/DataTable.h"
 #include "DimensionRunnerTypes.generated.h"
 
+class AArtifactBase;
+class UTexture2D;
+
 UENUM(BlueprintType)
 enum class EClientMood : uint8
 {
@@ -32,6 +35,14 @@ enum class ERatingSection : uint8
 	Section4 = 4,
 	Section5 = 5,
 	Section6 = 6
+};
+
+UENUM(BlueprintType)
+enum class EItemType : uint8
+{
+	Artifact,
+	Consumable,
+	Utility
 };
 
 USTRUCT(BlueprintType)
@@ -64,6 +75,38 @@ struct FOrderData : public FTableRowBase
 };
 
 USTRUCT(BlueprintType)
+struct FItemData : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
+	FName ItemID;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
+	FName ItemName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
+	TObjectPtr<UTexture2D> ItemIcon = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
+	EItemType ItemType = EItemType::Artifact;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
+	bool bCanPickupToHotbar = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
+	bool bCanUseFromHotbar = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
+	float HealAmount = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item")
+	TSubclassOf<AArtifactBase> ArtifactClass;
+
+	bool IsValid() const { return !ItemID.IsNone(); }
+};
+
+USTRUCT(BlueprintType)
 struct FHotbarSlot
 {
 	GENERATED_BODY()
@@ -73,6 +116,15 @@ struct FHotbarSlot
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hotbar")
 	int32 Quantity = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hotbar")
+	TObjectPtr<UTexture2D> ItemIcon = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hotbar")
+	EItemType ItemType = EItemType::Artifact;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hotbar")
+	bool bCanUseFromHotbar = false;
 
 	bool IsEmpty() const { return ItemID.IsNone() || Quantity <= 0; }
 };

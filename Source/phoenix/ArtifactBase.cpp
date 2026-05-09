@@ -1,6 +1,7 @@
 // ArtifactBase.cpp — Базовый класс подбираемого артефакта
 
 #include "ArtifactBase.h"
+#include "GI_DimensionRunner.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/DataTable.h"
 #include "UObject/UnrealType.h"
@@ -47,6 +48,20 @@ void AArtifactBase::BeginPlay()
 
 FText AArtifactBase::GetInteractHintText() const
 {
+	if (const UGI_DimensionRunner* GI = Cast<UGI_DimensionRunner>(GetGameInstance()))
+	{
+		if (const FItemData* ItemData = GI->FindItemData(ItemID))
+		{
+			if (ItemData->bCanPickupToHotbar)
+			{
+				return FText::Format(
+					NSLOCTEXT("Artifact", "PickupHint", "ЛКМ: Подобрать {0}"),
+					FText::FromName(ItemName)
+				);
+			}
+		}
+	}
+
 	return FText::Format(
 		NSLOCTEXT("Artifact", "CarryHint", "E: Нести {0}"),
 		FText::FromName(ItemName)

@@ -1,6 +1,6 @@
 # Dimension Runner
 
-Учебный проект игры на Unreal Engine 5 для группы 202-"РПО/software developer" в колледже.
+Учебный проект игры на Unreal Engine 5.
 
 ## Описание
 

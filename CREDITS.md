@@ -3,7 +3,6 @@
 This project uses third-party 3D models and textures under Creative Commons Attribution (CC BY 4.0) and other open licenses.
 
 ## 3D Models & Assets
-
 1. **BSG | Ragnar Anchorage**
    * **Authors:** 3D & Textures by EVE-Kaneda; Director/QC: NepsterCZ
    * **License:** CC Attribution (CC BY 4.0)
